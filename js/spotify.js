@@ -3,17 +3,25 @@ import { fetchWithTimeout, NetworkError } from './http.js';
 const AUTH_URL = 'https://accounts.spotify.com/authorize';
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const API_URL = 'https://api.spotify.com/v1';
-const SCOPES = [
+export const SCOPES = [
   'user-read-playback-state',
   'user-modify-playback-state',
   'playlist-read-private',
   'playlist-read-collaborative',
+  'user-library-read',
+  'user-read-recently-played',
+  'streaming',
+  'user-read-email',
+  'user-read-private',
 ];
 
 const TOKENS_KEY = 'spotify.tokens';
 const PENDING_KEY = 'spotify.pendingLogin';
 const EXPIRY_MARGIN_MS = 30000;
 const MAX_PLAYLISTS = 200;
+const PAGE_SIZE = 50;
+const SEARCH_PAGE_SIZE = 10;
+const ARTIST_ALBUMS_PAGE_SIZE = 10;
 
 export class SpotifyError extends Error {
   constructor(message, status) {
@@ -86,17 +94,79 @@ export function parsePlayback(json) {
   };
 }
 
-export function createSpotify({ getClientId, fetch: fetchFn, storage, now, redirectUri, cryptoImpl = crypto }) {
+const imageOf = (images) => images?.[1]?.url ?? images?.[0]?.url ?? null;
+const artistNames = (artists) => (artists ?? []).map((artist) => artist?.name).filter(Boolean).join(', ');
+
+export function normalizeTrack(track, fallbackImage = null) {
+  if (!track) return null;
+  return {
+    kind: 'track',
+    id: track.id,
+    uri: track.uri,
+    name: track.name ?? '',
+    subtitle: artistNames(track.artists) || track.show?.name || '',
+    imageUrl: imageOf(track.album?.images) ?? imageOf(track.images) ?? fallbackImage,
+  };
+}
+
+export function normalizeAlbum(album) {
+  if (!album) return null;
+  return {
+    kind: 'album',
+    id: album.id,
+    uri: album.uri,
+    name: album.name ?? '',
+    subtitle: artistNames(album.artists),
+    imageUrl: imageOf(album.images),
+  };
+}
+
+export function normalizeArtist(artist) {
+  if (!artist) return null;
+  return {
+    kind: 'artist',
+    id: artist.id,
+    uri: artist.uri,
+    name: artist.name ?? '',
+    subtitle: 'Kunstner',
+    imageUrl: imageOf(artist.images),
+  };
+}
+
+export function normalizePlaylist(playlist) {
+  if (!playlist) return null;
+  return {
+    kind: 'playlist',
+    id: playlist.id,
+    uri: playlist.uri,
+    name: playlist.name ?? '',
+    subtitle: playlist.owner?.display_name ?? '',
+    imageUrl: imageOf(playlist.images),
+  };
+}
+
+function rowsFrom(items, normalize) {
+  return (items ?? []).filter(Boolean).map(normalize).filter((row) => row?.uri);
+}
+
+function pageOf(json, offset, limit, rows) {
+  return { rows, nextOffset: json?.next ? offset + limit : null };
+}
+
+export function createSpotify({
+  getClientId, fetch: fetchFn, storage, now, redirectUri, cryptoImpl = crypto, getPreferredDeviceId = () => null,
+}) {
   let refreshing = null;
   let pausedUntil = 0;
 
   const time = () => now().getTime();
   const tokens = () => storage.get(TOKENS_KEY);
 
-  function saveTokens(json, previousRefresh) {
+  function saveTokens(json, previousRefresh, previousScope = '') {
     storage.set(TOKENS_KEY, {
       access: json.access_token,
       refresh: json.refresh_token ?? previousRefresh,
+      scope: json.scope ?? previousScope,
       expiresAt: time() + json.expires_in * 1000,
     });
   }
@@ -123,7 +193,7 @@ export function createSpotify({ getClientId, fetch: fetchFn, storage, now, redir
             refresh_token: current.refresh,
             client_id: getClientId(),
           });
-          saveTokens(json, current.refresh);
+          saveTokens(json, current.refresh, current.scope ?? '');
         } catch (error) {
           // Kun et afvist login sletter nøglerne. Et netværksudfald må ikke logge ud.
           if (error instanceof AuthRequiredError) storage.remove(TOKENS_KEY);
@@ -139,7 +209,8 @@ export function createSpotify({ getClientId, fetch: fetchFn, storage, now, redir
   async function accessToken() {
     const current = tokens();
     if (!current) throw new AuthRequiredError();
-    if (current.expiresAt - EXPIRY_MARGIN_MS <= time()) await refreshTokens();
+    // Et login fra før rettighederne blev gemt fornyes med det samme, så vi kan se, hvad det må.
+    if (typeof current.scope !== 'string' || current.expiresAt - EXPIRY_MARGIN_MS <= time()) await refreshTokens();
     return tokens().access;
   }
 
@@ -186,8 +257,37 @@ export function createSpotify({ getClientId, fetch: fetchFn, storage, now, redir
     return device;
   }
 
+  // Sidens egen afspiller bruges først. Er den væk, falder vi tilbage på Spotify-appen.
+  async function startPlayback(body) {
+    const preferred = getPreferredDeviceId();
+    if (preferred) {
+      try {
+        await request('PUT', `/me/player/play?device_id=${encodeURIComponent(preferred)}`, body);
+        return;
+      } catch (error) {
+        if (!(error instanceof NoDeviceError)) throw error;
+      }
+    }
+    const device = await requireDevice();
+    await request('PUT', `/me/player/play?device_id=${encodeURIComponent(device.id)}`, body);
+  }
+
+  function playContext(contextUri, trackUri) {
+    return startPlayback({ context_uri: contextUri, ...(trackUri ? { offset: { uri: trackUri } } : {}) });
+  }
+
   return {
     isLoggedIn: () => Boolean(tokens()?.refresh),
+
+    getAccessToken: accessToken,
+
+    // Sand, når login mangler rettigheder, som nyere funktioner på siden kræver.
+    needsNewLogin() {
+      const scope = tokens()?.scope;
+      if (!scope) return false;
+      const granted = scope.split(' ');
+      return SCOPES.some((required) => !granted.includes(required));
+    },
 
     logout: () => storage.remove(TOKENS_KEY),
 
@@ -264,20 +364,67 @@ export function createSpotify({ getClientId, fetch: fetchFn, storage, now, redir
       for (let offset = 0; offset < MAX_PLAYLISTS; offset += 50) {
         const json = await request('GET', `/me/playlists?limit=50&offset=${offset}`);
         const items = (json?.items ?? []).filter(Boolean);
-        playlists.push(...items.map((item) => ({
-          id: item.id,
-          name: item.name,
-          uri: item.uri,
-          imageUrl: item.images?.[0]?.url ?? null,
-        })));
+        playlists.push(...items.map(normalizePlaylist));
         if (!json?.next) break;
       }
       return playlists;
     },
 
-    async play() {
-      const device = await requireDevice();
-      await request('PUT', `/me/player/play?device_id=${encodeURIComponent(device.id)}`);
+    async search(query, offset = 0) {
+      const params = new URLSearchParams({
+        q: query,
+        type: 'track,artist,album,playlist',
+        limit: String(SEARCH_PAGE_SIZE),
+        offset: String(offset),
+      });
+      const json = await request('GET', `/search?${params}`);
+      return {
+        tracks: rowsFrom(json?.tracks?.items, (item) => normalizeTrack(item)),
+        artists: rowsFrom(json?.artists?.items, normalizeArtist),
+        albums: rowsFrom(json?.albums?.items, normalizeAlbum),
+        playlists: rowsFrom(json?.playlists?.items, normalizePlaylist),
+        nextOffset: [json?.tracks, json?.artists, json?.albums, json?.playlists].some((group) => group?.next)
+          ? offset + SEARCH_PAGE_SIZE
+          : null,
+      };
+    },
+
+    async getSavedTracks(offset = 0) {
+      const json = await request('GET', `/me/tracks?limit=${PAGE_SIZE}&offset=${offset}`);
+      return pageOf(json, offset, PAGE_SIZE, rowsFrom(json?.items, (entry) => normalizeTrack(entry.track)));
+    },
+
+    async getSavedAlbums(offset = 0) {
+      const json = await request('GET', `/me/albums?limit=${PAGE_SIZE}&offset=${offset}`);
+      return pageOf(json, offset, PAGE_SIZE, rowsFrom(json?.items, (entry) => normalizeAlbum(entry.album)));
+    },
+
+    async getRecentTracks() {
+      const json = await request('GET', `/me/player/recently-played?limit=${PAGE_SIZE}`);
+      const rows = rowsFrom(json?.items, (entry) => normalizeTrack(entry.track));
+      return { rows: rows.filter((row, index) => rows.findIndex((other) => other.uri === row.uri) === index), nextOffset: null };
+    },
+
+    async getPlaylistTracks(id, offset = 0) {
+      const path = `/playlists/${encodeURIComponent(id)}/items?limit=${PAGE_SIZE}&offset=${offset}`;
+      const json = await request('GET', path);
+      const items = (json?.items ?? []).filter((entry) => entry && !entry.is_local);
+      return pageOf(json, offset, PAGE_SIZE, rowsFrom(items, (entry) => normalizeTrack(entry.item ?? entry.track)));
+    },
+
+    async getAlbumTracks(id, offset = 0, albumImage = null) {
+      const json = await request('GET', `/albums/${encodeURIComponent(id)}/tracks?limit=${PAGE_SIZE}&offset=${offset}`);
+      return pageOf(json, offset, PAGE_SIZE, rowsFrom(json?.items, (item) => normalizeTrack(item, albumImage)));
+    },
+
+    async getArtistAlbums(id, offset = 0) {
+      const path = `/artists/${encodeURIComponent(id)}/albums?limit=${ARTIST_ALBUMS_PAGE_SIZE}&offset=${offset}`;
+      const json = await request('GET', path);
+      return pageOf(json, offset, ARTIST_ALBUMS_PAGE_SIZE, rowsFrom(json?.items, normalizeAlbum));
+    },
+
+    play() {
+      return startPlayback();
     },
 
     async pause() {
@@ -292,9 +439,14 @@ export function createSpotify({ getClientId, fetch: fetchFn, storage, now, redir
       await request('POST', '/me/player/previous');
     },
 
-    async playPlaylist(uri) {
-      const device = await requireDevice();
-      await request('PUT', `/me/player/play?device_id=${encodeURIComponent(device.id)}`, { context_uri: uri });
+    playContext,
+
+    playPlaylist(uri) {
+      return playContext(uri);
+    },
+
+    playTracks(uris) {
+      return startPlayback({ uris });
     },
   };
 }

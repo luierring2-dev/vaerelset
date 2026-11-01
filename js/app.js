@@ -1,6 +1,7 @@
 import { dayName, formatDate, formatTime } from './clock.js';
 import { createAlarmRunner, nextOccurrence } from './alarm.js';
 import { DEFAULT_CLIENT_ID } from './config.js';
+import { createMusicView } from './music.js';
 import { createAlarmSound } from './sound.js';
 import { createSettings } from './settings.js';
 import {
@@ -10,6 +11,7 @@ import { createStorage } from './storage.js';
 import { applyAppearance, imageFileToDataUrl, isNightActive, THEMES, resolveThemeId, toggleNight } from './theme.js';
 import { createTodoList } from './todo.js';
 import { createWeatherService, searchCity } from './weather.js';
+import { createWebPlayer } from './web-player.js';
 
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
@@ -19,6 +21,8 @@ const PLAYBACK_INTERVAL = 5 * SECOND;
 const NIGHT_PEEK_MS = 10 * SECOND;
 const MESSAGE_MS = 5 * SECOND;
 const ALARM_MAX_MS = 15 * MINUTE;
+const ALARM_CHECK_MS = 10 * SECOND;
+const AUTOPLAY_ALARM_WINDOW_MS = MINUTE;
 
 export function start(deps = {}) {
   const doc = deps.document ?? document;
@@ -31,6 +35,7 @@ export function start(deps = {}) {
   const alarmSound = deps.alarmSound ?? createAlarmSound();
   const settleMs = deps.settleMs ?? 500;
   const alarmMaxMs = deps.alarmMaxMs ?? ALARM_MAX_MS;
+  const alarmCheckMs = deps.alarmCheckMs ?? ALARM_CHECK_MS;
   const weatherRetryMs = deps.weatherRetryMs ?? MINUTE;
 
   const $ = (id) => doc.getElementById(id);
@@ -43,7 +48,21 @@ export function start(deps = {}) {
   const todos = createTodoList(storage);
   const weather = createWeatherService({ fetch: fetchFn, storage, now });
   const redirectUri = redirectUriFrom(pageUrl);
-  const spotify = createSpotify({ getClientId: () => settings.load().clientId, fetch: fetchFn, storage, now, redirectUri });
+  const spotify = createSpotify({
+    getClientId: () => settings.load().clientId,
+    fetch: fetchFn,
+    storage,
+    now,
+    redirectUri,
+    getPreferredDeviceId: () => webPlayer.getDeviceId(),
+  });
+  const webPlayer = (deps.createWebPlayer ?? createWebPlayer)({
+    getToken: () => spotify.getAccessToken(),
+    onReady: () => renderPlayer(),
+    onUnavailable: () => renderPlayer(),
+    onAutoplayFailed: handleAutoplayFailed,
+    onPlaybackError: () => showMessage('Nummeret kunne ikke afspilles'),
+  });
 
   const state = {
     playback: null,
@@ -53,6 +72,7 @@ export function start(deps = {}) {
     noDevice: false,
     polling: false,
     stopped: false,
+    alarmStartedAt: null,
     image: storage.get('theme.image'),
   };
   let messageTimer = null;
@@ -107,11 +127,30 @@ export function start(deps = {}) {
     storage,
     now,
     startMusic: async (uri) => {
+      state.alarmStartedAt = now().getTime();
       await spotify.playPlaylist(uri);
       setTimeout(pollPlayback, settleMs);
+      setTimeout(verifyAlarmMusic, alarmCheckMs);
     },
     onRing: ringAlarm,
   });
+
+  // iOS kan blokere lyden, selvom Spotify svarer, at alt er i orden. Et vækkeur må ikke fejle i stilhed.
+  async function verifyAlarmMusic() {
+    if (state.stopped) return;
+    try {
+      const playback = await spotify.getPlayback();
+      if (!playback?.isPlaying) ringAlarm(new Error('Musikken startede ikke'));
+    } catch (error) {
+      ringAlarm(error);
+    }
+  }
+
+  function handleAutoplayFailed() {
+    const sinceAlarm = now().getTime() - (state.alarmStartedAt ?? -Infinity);
+    if (sinceAlarm < AUTOPLAY_ALARM_WINDOW_MS) ringAlarm(new Error('iPad’en blokerede musikken'));
+    else showMessage('Tryk på afspil for at starte musikken');
+  }
 
   function ringAlarm(error) {
     $('alarm-reason').textContent = errorText(error);
@@ -182,8 +221,12 @@ export function start(deps = {}) {
     const loggedIn = spotify.isLoggedIn();
     const hasTrack = Boolean(playback?.title);
 
-    $('track-title').textContent = hasTrack ? playback.title : 'Intet spiller';
-    $('track-artist').textContent = hasTrack ? playback.artist : '';
+    const needsNewLogin = spotify.needsNewLogin();
+
+    for (const prefix of ['track', 'music-now']) {
+      $(`${prefix}-title`).textContent = hasTrack ? playback.title : 'Intet spiller';
+      $(`${prefix}-artist`).textContent = hasTrack ? playback.artist : '';
+    }
 
     const cover = $('cover');
     const coverUrl = playback?.coverUrl?.startsWith('https://') ? playback.coverUrl : null;
@@ -191,17 +234,33 @@ export function start(deps = {}) {
     cover.hidden = !coverUrl;
 
     const playing = Boolean(playback?.isPlaying);
-    $('icon-play').toggleAttribute('hidden', playing);
-    $('icon-pause').toggleAttribute('hidden', !playing);
-    $('play-pause').setAttribute('aria-label', playing ? 'Pause' : 'Afspil');
+    for (const prefix of ['', 'music-']) {
+      $(`${prefix}icon-play`).toggleAttribute('hidden', playing);
+      $(`${prefix}icon-pause`).toggleAttribute('hidden', !playing);
+      $(`${prefix}play-pause`).setAttribute('aria-label', playing ? 'Pause' : 'Afspil');
+    }
 
-    $('login').hidden = loggedIn;
-    $('open-spotify').hidden = !loggedIn || !(noDevice || !playback);
+    $('login').hidden = loggedIn && !needsNewLogin;
+    $('music-open').hidden = !loggedIn || needsNewLogin;
+    // Når siden selv kan spille, er Spotify-appen ikke nødvendig.
+    const appNeeded = loggedIn && !webPlayer.getDeviceId() && (noDevice || !playback);
+    $('open-spotify').hidden = !appNeeded;
+    $('music-open-spotify').hidden = !appNeeded;
 
     let text = note;
     if (!loggedIn) text = 'Ikke logget ind på Spotify';
+    else if (needsNewLogin) text = 'Log ind igen for at bruge musikskærmen';
     else if (noDevice) text = 'Spotify er ikke åben på iPad’en';
+    else if (!text && playback?.deviceName) text = `Spiller på ${playback.deviceName}`;
     $('player-note').textContent = text;
+  }
+
+  function startWebPlayer() {
+    if (spotify.isLoggedIn() && !spotify.needsNewLogin()) webPlayer.start();
+  }
+
+  function openMusic() {
+    if (spotify.isLoggedIn() && !spotify.needsNewLogin()) music.open();
   }
 
   function handleSpotifyError(error, { quiet = false } = {}) {
@@ -446,9 +505,23 @@ export function start(deps = {}) {
     $(id).addEventListener(type, handler, { signal });
   }
 
-  on('play-pause', 'click', () => playerAction(() => (state.playback?.isPlaying ? spotify.pause() : spotify.play())));
+  const togglePlayback = () => playerAction(() => (state.playback?.isPlaying ? spotify.pause() : spotify.play()));
+  const music = createMusicView({
+    doc,
+    spotify,
+    play: playerAction,
+    errorText,
+    onAuthRequired: () => renderPlayer(),
+    signal,
+  });
+
+  on('play-pause', 'click', togglePlayback);
+  on('music-play-pause', 'click', togglePlayback);
   on('next', 'click', () => playerAction(() => spotify.next()));
+  on('music-next', 'click', () => playerAction(() => spotify.next()));
   on('previous', 'click', () => playerAction(() => spotify.previous()));
+  on('music-open', 'click', openMusic);
+  on('cover-frame', 'click', openMusic);
   on('login', 'click', login);
   on('alarm-stop', 'click', stopAlarm);
 
@@ -512,6 +585,7 @@ export function start(deps = {}) {
       showMessage('Logget ind på Spotify');
       await loadPlaylists();
       await pollPlayback();
+      startWebPlayer();
     } catch (error) {
       showMessage(errorText(error));
     }
@@ -524,6 +598,11 @@ export function start(deps = {}) {
     peekTimer = setTimeout(() => root.classList.remove('night-peek'), NIGHT_PEEK_MS);
   }, { signal, capture: true });
 
+  // pointerdown tæller ikke som et tryk, der må låse lyd op på iOS. Det gør disse to.
+  for (const type of ['touchend', 'click']) {
+    doc.addEventListener(type, () => webPlayer.activate(), { signal, capture: true });
+  }
+
   doc.addEventListener('visibilitychange', () => {
     if (doc.hidden) return;
     tickClock();
@@ -535,6 +614,7 @@ export function start(deps = {}) {
   doc.defaultView?.addEventListener('online', () => {
     refreshWeather();
     pollPlayback();
+    startWebPlayer();
   }, { signal });
 
   // Virker ikke altid i hjemmeskærms-apps på iPadOS 17, derfor også Autolås: Aldrig.
@@ -550,6 +630,7 @@ export function start(deps = {}) {
     renderPlayer();
     await finishLoginFromUrl();
     renderPlayer();
+    startWebPlayer();
     await Promise.all([refreshWeather(), loadPlaylists(), pollPlayback()]);
   })();
 
@@ -576,6 +657,7 @@ export function start(deps = {}) {
       timers.forEach(clearInterval);
       [messageTimer, peekTimer, alarmTimer].forEach(clearTimeout);
       alarmSound.stop();
+      webPlayer.stop();
     },
   };
 }

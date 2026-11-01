@@ -14,7 +14,7 @@ export function createAlarmSound(win = window) {
     context.resume?.().catch(() => {});
   }
 
-  win.addEventListener('pointerdown', unlock, { capture: true });
+  for (const type of ['touchend', 'click']) win.addEventListener(type, unlock, { capture: true });
 
   function beep() {
     if (!context) return;

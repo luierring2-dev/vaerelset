@@ -1,5 +1,5 @@
 // Gør at uret og siden virker, selvom nettet er væk, når iPad'en genindlæser.
-const CACHE = 'home-v2';
+const CACHE = 'home-v3';
 const APP_FILES = [
   './',
   './index.html',
@@ -11,6 +11,7 @@ const APP_FILES = [
   './js/clock.js',
   './js/config.js',
   './js/http.js',
+  './js/music.js',
   './js/settings.js',
   './js/sound.js',
   './js/spotify.js',
@@ -18,6 +19,7 @@ const APP_FILES = [
   './js/theme.js',
   './js/todo.js',
   './js/weather.js',
+  './js/web-player.js',
 ];
 
 self.addEventListener('install', (event) => {

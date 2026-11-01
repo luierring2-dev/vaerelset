@@ -17,6 +17,20 @@ const unhandled = [];
 window.addEventListener('unhandledrejection', (event) => unhandled.push(String(event.reason)));
 window.addEventListener('error', (event) => unhandled.push(event.message));
 
+const fakeTrack = (id) => ({
+  id, uri: `spotify:track:${id}`, name: `Nummer ${id}`, artists: [{ name: 'Kunstner A' }], album: { images: [] },
+});
+const fakeAlbum = (id) => ({ id, uri: `spotify:album:${id}`, name: `Album ${id}`, artists: [{ name: 'Kunstner A' }], images: [] });
+const fakeArtist = (id) => ({ id, uri: `spotify:artist:${id}`, name: `Kunstner ${id}`, images: [] });
+
+async function until(condition, label = 'betingelsen') {
+  for (let i = 0; i < 100; i++) {
+    if (condition()) return;
+    await pause(10);
+  }
+  throw new Error(`${label} blev aldrig sand`);
+}
+
 function fakeWorld() {
   const world = {
     online: true,
@@ -27,9 +41,15 @@ function fakeWorld() {
       { id: '1', name: 'Morgen', uri: 'spotify:playlist:morgen', images: [] },
       { id: '2', name: 'Aften', uri: 'spotify:playlist:aften', images: [] },
     ],
+    saved: ['t1', 't2', 't3'].map(fakeTrack),
+    albums: [fakeAlbum('a1')],
+    recent: ['r1', 'r1', 'r2'].map(fakeTrack),
     tokenStatus: 200,
     apiStatus: null,
     weatherStatus: 200,
+    playBlocked: false,
+    holdPath: null,
+    hold: null,
     calls: [],
   };
   world.fetch = async (url, options = {}) => {
@@ -65,13 +85,43 @@ function fakeWorld() {
 
     if (world.apiStatus) return json({}, world.apiStatus);
     const path = parsed.pathname.replace('/v1', '');
+    if (path === world.holdPath) await world.hold;
+    const page = (rows, map = (row) => row) => {
+      const offset = Number(parsed.searchParams.get('offset') ?? 0);
+      const limit = Number(parsed.searchParams.get('limit') ?? 20);
+      return json({ items: rows.slice(offset, offset + limit).map(map), next: offset + limit < rows.length ? 'mere' : null });
+    };
     if (path === '/me/player') {
       return world.track ? json({ is_playing: world.isPlaying, device: world.devices[0], item: world.track }) : empty();
     }
     if (path === '/me/player/devices') return json({ devices: world.devices });
     if (path === '/me/playlists') return json({ items: world.playlists, next: null });
+    if (path === '/me/tracks') return page(world.saved, (track) => ({ track, added_at: 'x' }));
+    if (path === '/me/albums') return page(world.albums, (album) => ({ album, added_at: 'x' }));
+    if (path === '/me/player/recently-played') return page(world.recent, (track) => ({ track }));
+    if (path === '/search') {
+      const offset = Number(parsed.searchParams.get('offset'));
+      if (Number(parsed.searchParams.get('limit')) > 10) return json({}, 400);
+      if (parsed.searchParams.get('q') === 'intet') return json({ tracks: { items: [] }, artists: { items: [] }, albums: { items: [] }, playlists: { items: [] } });
+      return json({
+        tracks: { items: [fakeTrack(`søg${offset}`)], next: offset ? null : 'mere' },
+        artists: { items: offset ? [] : [fakeArtist('k1')], next: null },
+        albums: { items: offset ? [] : [fakeAlbum('a1')], next: null },
+        playlists: { items: offset ? [] : [null, world.playlists[0]], next: null },
+      });
+    }
+    const playlistMatch = path.match(/^\/playlists\/(.+)\/items$/);
+    if (playlistMatch) {
+      if (playlistMatch[1] === 'fremmed') return json({}, 403);
+      return page(world.saved, (item) => ({ item }));
+    }
+    if (path === '/albums/a1/tracks') return page(world.saved.map(({ album, ...rest }) => rest));
+    if (path === '/artists/k1/albums') {
+      if (Number(parsed.searchParams.get('limit')) > 10) return json({}, 400);
+      return page(world.albums);
+    }
     if (path === '/me/player/pause') world.isPlaying = false;
-    if (path === '/me/player/play') world.isPlaying = true;
+    if (path === '/me/player/play' && !world.playBlocked) world.isPlaying = true;
     if (path === '/me/player/next') world.track = { ...world.track, name: 'Næste sang' };
     if (path === '/me/player/previous') world.track = { ...world.track, name: 'Forrige sang' };
     return empty();
@@ -84,7 +134,7 @@ let current = null;
 
 async function mount({
   world = fakeWorld(), storage = createStorage(createMemoryBackend()), time = new Date(2026, 10, 1, 14, 32),
-  loggedIn = false, settings = {}, pageUrl = 'https://example.test/hjem/', image, options = {},
+  loggedIn = false, settings = {}, pageUrl = 'https://example.test/hjem/', image, options = {}, scope = '',
 } = {}) {
   current?.handle.stop();
   document.documentElement.className = '';
@@ -97,16 +147,27 @@ async function mount({
   let cleared = 0;
   const stored = storage.get('settings');
   storage.set('settings', { ...stored, ...settings });
-  if (loggedIn) storage.set('spotify.tokens', { access: 'A', refresh: 'R', expiresAt: time.getTime() + 3600000 });
+  if (loggedIn) storage.set('spotify.tokens', { access: 'A', refresh: 'R', scope, expiresAt: time.getTime() + 3600000 });
   if (image) storage.set('theme.image', image);
 
+  const web = { started: 0, activated: 0, stopped: 0, deviceId: null, callbacks: null };
   const handle = start({
     fetch: world.fetch, storage, now: () => clock.time, pageUrl,
     navigate: (url) => navigated.push(url), clearUrl: () => { cleared++; },
-    alarmSound: sound, settleMs: 0, autoRun: false, defaultClientId: '', ...options,
+    alarmSound: sound, settleMs: 0, autoRun: false, defaultClientId: '',
+    createWebPlayer: (callbacks) => {
+      web.callbacks = callbacks;
+      return {
+        start() { web.started++; },
+        getDeviceId: () => web.deviceId,
+        activate() { web.activated++; },
+        stop() { web.stopped++; },
+      };
+    },
+    ...options,
   });
   await handle.ready;
-  current = { handle, world, storage, clock, sound, navigated, getCleared: () => cleared };
+  current = { handle, world, storage, clock, sound, navigated, web, getCleared: () => cleared };
   return current;
 }
 
@@ -703,6 +764,411 @@ test('tema: temavælgeren har kun det neutrale tema, indtil design er valgt', as
   assert.equal($('theme-select').options.length, 1);
   assert.equal($('theme-select').value, 'neutral');
   $('settings').close();
+});
+
+const openMusic = async () => {
+  $('music-open').click();
+  await until(() => $('music-note').textContent !== 'Henter…', 'musikskærmen indlæst');
+};
+const rows = () => [...$('music-list').querySelectorAll('.music-row')];
+const rowNames = () => rows().map((row) => row.querySelector('.music-row-name').textContent);
+const clickRow = async (name) => {
+  rows().find((row) => row.querySelector('.music-row-name').textContent === name).click();
+  await pause(20);
+};
+const clickAndLoad = async (id) => {
+  $(id).click();
+  await until(() => $('music-note').textContent !== 'Henter…', `${id} indlæst`);
+};
+const search = async (text) => {
+  $('music-search').value = text;
+  $('music-search-form').requestSubmit();
+  await until(() => $('music-note').textContent !== 'Henter…', 'søgning');
+};
+const lastPlay = (world) => JSON.parse(world.calls.filter((call) => call.path === '/v1/me/player/play').at(-1).body);
+
+test('musik: findes kun, når man er logget ind', async () => {
+  await mount();
+  assert.equal($('music-open').hidden, true);
+  assert.equal($('music').hidden, true);
+  $('cover-frame').click();
+  assert.equal($('music').hidden, true, 'coveret åbner ikke uden login');
+  await mount({ loggedIn: true });
+  assert.equal($('music-open').hidden, false);
+});
+
+test('musik: åbner med dine playlister, og coveret åbner også', async () => {
+  await mount({ loggedIn: true });
+  await openMusic();
+  assert.equal($('music').hidden, false);
+  assert.equal($('music-title').textContent, 'Dine playlister');
+  assert.deepEqual(rowNames(), ['Morgen', 'Aften']);
+  assert.ok($('music-tab-playlists').classList.contains('active'), 'fane markeret');
+  $('music-close').click();
+  assert.equal($('music').hidden, true);
+  $('cover-frame').click();
+  assert.equal($('music').hidden, false);
+});
+
+test('musik: gemte numre starter fra det valgte og spiller videre', async () => {
+  const app = await mount({ loggedIn: true });
+  await openMusic();
+  await clickAndLoad('music-tab-saved');
+  assert.deepEqual(rowNames(), ['Nummer t1', 'Nummer t2', 'Nummer t3']);
+  assert.equal($('music-back').hidden, true);
+  await clickRow('Nummer t2');
+  assert.deepEqual(lastPlay(app.world), { uris: ['spotify:track:t2', 'spotify:track:t3'] });
+});
+
+test('musik: hørt for nylig viser hvert nummer én gang', async () => {
+  await mount({ loggedIn: true });
+  await openMusic();
+  await clickAndLoad('music-tab-recent');
+  assert.deepEqual(rowNames(), ['Nummer r1', 'Nummer r2']);
+});
+
+test('musik: album åbnes, og nummer spiller videre i albummet', async () => {
+  const app = await mount({ loggedIn: true });
+  await openMusic();
+  await clickAndLoad('music-tab-albums');
+  await clickRow('Album a1');
+  assert.equal($('music-title').textContent, 'Album a1');
+  assert.equal($('music-back').hidden, false);
+  assert.equal($('music-play-all').hidden, false);
+  await clickRow('Nummer t2');
+  assert.deepEqual(lastPlay(app.world), { context_uri: 'spotify:album:a1', offset: { uri: 'spotify:track:t2' } });
+  $('music-play-all').click();
+  await pause(20);
+  assert.deepEqual(lastPlay(app.world), { context_uri: 'spotify:album:a1' });
+  await clickAndLoad('music-back');
+  assert.equal($('music-title').textContent, 'Gemte album');
+  assert.equal($('music-play-all').hidden, true);
+  assert.equal($('music-back').hidden, true);
+});
+
+test('musik: egen playliste viser numre, og nummer spiller videre i playlisten', async () => {
+  const app = await mount({ loggedIn: true });
+  await openMusic();
+  await clickRow('Morgen');
+  assert.deepEqual(rowNames(), ['Nummer t1', 'Nummer t2', 'Nummer t3']);
+  await clickRow('Nummer t3');
+  assert.deepEqual(lastPlay(app.world), { context_uri: 'spotify:playlist:morgen', offset: { uri: 'spotify:track:t3' } });
+});
+
+test('musik: andres playliste forklarer begrænsningen og kan stadig startes', async () => {
+  const world = fakeWorld();
+  world.playlists = [{ id: 'fremmed', name: 'Andres', uri: 'spotify:playlist:fremmed', images: [] }];
+  const app = await mount({ world, loggedIn: true });
+  await openMusic();
+  await clickRow('Andres');
+  assert.ok($('music-note').textContent.includes('andres playlister'), 'forklaring');
+  assert.equal($('music-retry').hidden, true, 'ikke en fejl man kan prøve igen');
+  $('music-play-all').click();
+  await pause(20);
+  assert.deepEqual(lastPlay(app.world), { context_uri: 'spotify:playlist:fremmed' });
+});
+
+test('musik: søgning viser grupper, og kunstner fører til album', async () => {
+  const app = await mount({ loggedIn: true });
+  await openMusic();
+  await search('noget');
+  assert.equal($('music-title').textContent, 'Søgning: noget');
+  assert.deepEqual([...$('music-list').querySelectorAll('h3')].map((h) => h.textContent), ['Numre', 'Kunstnere', 'Album', 'Playlister']);
+  assert.deepEqual(rowNames(), ['Nummer søg0', 'Kunstner k1', 'Album a1', 'Morgen']);
+  await clickRow('Nummer søg0');
+  assert.deepEqual(lastPlay(app.world), { uris: ['spotify:track:søg0'] });
+  await clickRow('Kunstner k1');
+  assert.equal($('music-title').textContent, 'Kunstner k1');
+  assert.deepEqual(rowNames(), ['Album a1']);
+  $('music-play-all').click();
+  await pause(20);
+  assert.deepEqual(lastPlay(app.world), { context_uri: 'spotify:artist:k1' });
+});
+
+test('musik: vis flere tilføjer til de samme grupper', async () => {
+  await mount({ loggedIn: true });
+  await openMusic();
+  await search('noget');
+  assert.equal($('music-more').hidden, false);
+  await clickAndLoad('music-more');
+  assert.deepEqual(rowNames(), ['Nummer søg0', 'Nummer søg10', 'Kunstner k1', 'Album a1', 'Morgen']);
+  assert.equal($('music-list').querySelectorAll('h3').length, 4, 'ingen dubletter af overskrifter');
+  assert.equal($('music-more').hidden, true);
+});
+
+test('musik: en ny søgning erstatter den forrige, og tilbage går til fanen', async () => {
+  await mount({ loggedIn: true });
+  await openMusic();
+  await search('en');
+  await search('to');
+  assert.equal($('music-title').textContent, 'Søgning: to');
+  await clickAndLoad('music-back');
+  assert.equal($('music-title').textContent, 'Dine playlister');
+  assert.equal($('music-back').hidden, true);
+});
+
+test('musik: tom søgning gør ingenting, og ingen resultater siges tydeligt', async () => {
+  const app = await mount({ loggedIn: true });
+  await openMusic();
+  const before = app.world.count('/v1/search');
+  $('music-search').value = '   ';
+  $('music-search-form').requestSubmit();
+  await pause(10);
+  assert.equal(app.world.count('/v1/search'), before);
+  await search('intet');
+  assert.equal($('music-note').textContent, 'Ingen resultater');
+  assert.equal(rows().length, 0);
+});
+
+test('musik: tomt bibliotek og lange lister med flere sider', async () => {
+  const world = fakeWorld();
+  world.saved = Array.from({ length: 60 }, (_, i) => fakeTrack(`n${i}`));
+  world.albums = [];
+  await mount({ world, loggedIn: true });
+  await openMusic();
+  await clickAndLoad('music-tab-albums');
+  assert.equal($('music-note').textContent, 'Der er ikke noget her endnu');
+  await clickAndLoad('music-tab-saved');
+  assert.equal(rows().length, 50);
+  await clickAndLoad('music-more');
+  assert.equal(rows().length, 60);
+  assert.equal($('music-more').hidden, true);
+});
+
+test('musik: fejl vises med prøv igen, som virker', async () => {
+  const app = await mount({ loggedIn: true });
+  await openMusic();
+  app.world.apiStatus = 500;
+  await clickAndLoad('music-tab-saved');
+  assert.equal($('music-note').textContent, 'Spotify afviste kaldet');
+  assert.equal($('music-retry').hidden, false);
+  app.world.apiStatus = null;
+  await clickAndLoad('music-retry');
+  assert.equal(rows().length, 3);
+  assert.equal($('music-retry').hidden, true);
+  assert.equal($('music-note').textContent, '');
+});
+
+test('musik: netudfald under søgning giver klar besked', async () => {
+  const app = await mount({ loggedIn: true });
+  await openMusic();
+  app.world.online = false;
+  await search('noget');
+  assert.equal($('music-note').textContent, 'Ingen forbindelse til nettet');
+});
+
+test('musik: udløbet login viser besked og login-knappen', async () => {
+  const app = await mount({ loggedIn: true });
+  await openMusic();
+  app.world.tokenStatus = 400;
+  app.clock.time = new Date(2026, 10, 1, 17, 0);
+  await clickAndLoad('music-tab-saved');
+  assert.equal($('music-note').textContent, 'Log ind på Spotify igen');
+  assert.equal($('login').hidden, false);
+});
+
+test('musik: et langsomt svar må ikke overskrive det, man er gået videre til', async () => {
+  const world = fakeWorld();
+  let release;
+  world.holdPath = '/me/tracks';
+  world.hold = new Promise((resolve) => { release = resolve; });
+  await mount({ world, loggedIn: true });
+  await openMusic();
+  $('music-tab-saved').click();
+  await pause(10);
+  await clickAndLoad('music-tab-recent');
+  release();
+  await pause(30);
+  assert.equal($('music-title').textContent, 'Hørt for nylig');
+  assert.deepEqual(rowNames(), ['Nummer r1', 'Nummer r2']);
+});
+
+test('musik: afspilleren på musikskærmen virker og følger med', async () => {
+  const app = await mount({ loggedIn: true });
+  await openMusic();
+  assert.equal($('music-now-title').textContent, 'Første sang');
+  assert.equal($('music-now-artist').textContent, 'Kunstner A');
+  assert.equal($('music-play-pause').getAttribute('aria-label'), 'Pause');
+  $('music-play-pause').click();
+  await pause(20);
+  assert.equal(app.world.count('/v1/me/player/pause', 'PUT'), 1);
+  assert.equal($('music-play-pause').getAttribute('aria-label'), 'Afspil');
+  $('music-next').click();
+  await pause(20);
+  assert.equal($('music-now-title').textContent, 'Næste sang');
+});
+
+test('musik: lukket Spotify uden webafspiller viser Åbn Spotify på musikskærmen', async () => {
+  const world = fakeWorld();
+  world.devices = [];
+  world.track = null;
+  await mount({ world, loggedIn: true });
+  await openMusic();
+  assert.equal($('music-open-spotify').hidden, false);
+  await clickAndLoad('music-tab-saved');
+  await clickRow('Nummer t1');
+  assert.equal($('message').textContent, 'Spotify er ikke åben på iPad’en');
+});
+
+test('musik: navne vises som tekst, og kun sikre billeder hentes', async () => {
+  const world = fakeWorld();
+  const evil = '<img src=x onerror="window.pwned=2">';
+  world.saved = [
+    { ...fakeTrack('ond'), name: evil, artists: [{ name: evil }], album: { images: [{ url: 'javascript:alert(1)' }] } },
+    { ...fakeTrack('god'), album: { images: [{ url: 'https://example.invalid/a.jpg' }] } },
+  ];
+  await mount({ world, loggedIn: true });
+  await openMusic();
+  await clickAndLoad('music-tab-saved');
+  const [bad, good] = rows();
+  assert.equal(bad.querySelector('.music-row-name').textContent, evil);
+  assert.equal(bad.querySelector('img'), null);
+  assert.equal(good.querySelector('img').getAttribute('src'), 'https://example.invalid/a.jpg');
+  assert.equal(window.pwned, undefined);
+});
+
+test('musik: passer til iPad, listen ruller selv, og alt kan rammes', async () => {
+  const world = fakeWorld();
+  world.saved = Array.from({ length: 50 }, (_, i) => ({ ...fakeTrack(`n${i}`), name: `Et meget langt navn på et nummer ${'x'.repeat(200)}` }));
+  await mount({ world, loggedIn: true });
+  await openMusic();
+  await clickAndLoad('music-tab-saved');
+  const root = document.documentElement;
+  assert.ok(root.scrollWidth <= root.clientWidth, `bredde ${root.scrollWidth}/${root.clientWidth}`);
+  assert.ok(root.scrollHeight <= root.clientHeight, `højde ${root.scrollHeight}/${root.clientHeight}`);
+  const scroll = $('music-scroll');
+  assert.ok(scroll.scrollHeight > scroll.clientHeight, 'listen ruller');
+  assert.ok(scroll.scrollWidth <= scroll.clientWidth, 'lange navne stikker ikke ud');
+  const now = document.querySelector('.music-now').getBoundingClientRect();
+  assert.ok(now.bottom <= window.innerHeight + 1, 'afspilleren er synlig');
+  for (const button of $('music').querySelectorAll('button:not([hidden])')) {
+    const box = button.getBoundingClientRect();
+    if (box.height) assert.ok(box.height >= 44, `${button.id || button.className} højde ${box.height}`);
+  }
+});
+
+test('webafspiller: startes efter login, men ikke uden', async () => {
+  const out = await mount();
+  assert.equal(out.web.started, 0);
+  const app = await mount({ loggedIn: true });
+  assert.equal(app.web.started, 1);
+});
+
+test('webafspiller: gammelt login beder om nyt login i stedet for at starte', async () => {
+  const app = await mount({ loggedIn: true, scope: 'playlist-read-private' });
+  assert.equal(app.web.started, 0);
+  assert.equal($('login').hidden, false);
+  assert.equal($('music-open').hidden, true);
+  assert.equal($('player-note').textContent, 'Log ind igen for at bruge musikskærmen');
+  $('cover-frame').click();
+  assert.equal($('music').hidden, true);
+});
+
+test('webafspiller: bruges til afspilning, når den er klar, og Åbn Spotify forsvinder', async () => {
+  const world = fakeWorld();
+  world.devices = [];
+  world.track = null;
+  const app = await mount({ world, loggedIn: true });
+  assert.equal($('open-spotify').hidden, false, 'før den er klar');
+  app.web.deviceId = 'side';
+  app.web.callbacks.onReady();
+  assert.equal($('open-spotify').hidden, true);
+  assert.equal($('music-open-spotify').hidden, true);
+  $('playlists').children[0].querySelector('button').click();
+  await pause(20);
+  assert.ok(world.calls.find((call) => call.path === '/v1/me/player/play').url.includes('device_id=side'));
+});
+
+test('webafspiller: mistes den, kommer Åbn Spotify tilbage', async () => {
+  const world = fakeWorld();
+  world.track = null;
+  const app = await mount({ world, loggedIn: true });
+  app.web.deviceId = 'side';
+  app.web.callbacks.onReady();
+  assert.equal($('open-spotify').hidden, true);
+  app.web.deviceId = null;
+  app.web.callbacks.onUnavailable('not_ready');
+  assert.equal($('open-spotify').hidden, false);
+});
+
+test('webafspiller: tryk på skærmen låser lyd op', async () => {
+  const app = await mount({ loggedIn: true });
+  document.body.click();
+  assert.equal(app.web.activated, 1);
+  document.dispatchEvent(new Event('touchend'));
+  assert.equal(app.web.activated, 2);
+  app.handle.stop();
+  document.body.click();
+  assert.equal(app.web.activated, 2, 'stopper med siden');
+  assert.equal(app.web.stopped, 1);
+});
+
+test('webafspiller: henter login fra Spotify-delen og viser afspilningsfejl', async () => {
+  const app = await mount({ loggedIn: true });
+  assert.equal(await app.web.callbacks.getToken(), 'A');
+  app.web.callbacks.onPlaybackError();
+  assert.equal($('message').textContent, 'Nummeret kunne ikke afspilles');
+});
+
+test('webafspiller: blokeret lyd beder om et tryk til daglig', async () => {
+  const app = await mount({ loggedIn: true });
+  app.web.callbacks.onAutoplayFailed();
+  assert.equal($('message').textContent, 'Tryk på afspil for at starte musikken');
+  assert.equal($('alarm-overlay').hidden, true);
+});
+
+const morningAlarm = { enabled: true, time: '07:00', days: [1], playlistUri: 'spotify:playlist:morgen' };
+
+test('vækkeur: blokeret lyd lige efter vækning får alarmen til at ringe', async () => {
+  const app = await mount({ loggedIn: true, settings: { alarm: morningAlarm }, time: new Date(2026, 10, 2, 7, 0) });
+  await pause(20);
+  app.web.callbacks.onAutoplayFailed();
+  assert.equal($('alarm-overlay').hidden, false);
+  assert.equal($('alarm-reason').textContent, 'iPad’en blokerede musikken');
+  assert.equal(app.sound.started, 1);
+});
+
+test('vækkeur: blokeret lyd længe efter vækning ringer ikke', async () => {
+  const app = await mount({ loggedIn: true, settings: { alarm: morningAlarm }, time: new Date(2026, 10, 2, 7, 0) });
+  await pause(20);
+  app.clock.time = new Date(2026, 10, 2, 7, 1, 1);
+  app.web.callbacks.onAutoplayFailed();
+  assert.equal($('alarm-overlay').hidden, true);
+});
+
+test('vækkeur: ringer, hvis musikken stadig ikke spiller kort efter', async () => {
+  const world = fakeWorld();
+  world.isPlaying = false;
+  world.playBlocked = true;
+  const app = await mount({ world, loggedIn: true, settings: { alarm: morningAlarm }, time: new Date(2026, 10, 2, 7, 0), options: { alarmCheckMs: 10 } });
+  await until(() => !$('alarm-overlay').hidden, 'alarmen');
+  assert.equal($('alarm-reason').textContent, 'Musikken startede ikke');
+  assert.equal(app.sound.started, 1);
+});
+
+test('vækkeur: ringer ikke, når musikken faktisk spiller', async () => {
+  const world = fakeWorld();
+  world.isPlaying = false;
+  const app = await mount({ world, loggedIn: true, settings: { alarm: morningAlarm }, time: new Date(2026, 10, 2, 7, 0), options: { alarmCheckMs: 10 } });
+  await pause(60);
+  assert.equal(world.isPlaying, true);
+  assert.equal($('alarm-overlay').hidden, true);
+  assert.equal(app.sound.started, 0);
+});
+
+test('vækkeur: ringer, hvis tjekket af musikken fejler', async () => {
+  const world = fakeWorld();
+  const app = await mount({ world, loggedIn: true, settings: { alarm: morningAlarm }, time: new Date(2026, 10, 2, 7, 0), options: { alarmCheckMs: 30 } });
+  world.online = false;
+  await until(() => !$('alarm-overlay').hidden, 'alarmen');
+  assert.equal(app.sound.started, 1);
+});
+
+test('afspiller: viser hvor musikken spiller', async () => {
+  const world = fakeWorld();
+  world.devices = [{ id: 'side', name: 'Værelset', type: 'Computer', is_active: true }];
+  await mount({ world, loggedIn: true });
+  assert.equal($('player-note').textContent, 'Spiller på Værelset');
 });
 
 test('robusthed: alt nede fra start, uret kører stadig', async () => {

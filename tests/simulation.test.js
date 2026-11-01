@@ -144,7 +144,7 @@ test('simulering: et døgn med ustabilt net og Spotify ender uden logout eller l
   const backend = createMemoryBackend();
   const storage = createStorage(backend);
   let time = new Date(2026, 10, 1).getTime();
-  storage.set('spotify.tokens', { access: 'A', refresh: 'R', expiresAt: time + 3600000 });
+  storage.set('spotify.tokens', { access: 'A', refresh: 'R', scope: '', expiresAt: time + 3600000 });
   const fetchFn = fakeFetch((call) => {
     const roll = rnd();
     if (roll < 0.1) throw new TypeError('offline');

@@ -16,12 +16,19 @@ Udseendet er neutralt og midlertidigt. Når du har valgt en retning, skal der ku
 
 Siden ligger på https://luierring2-dev.github.io/vaerelset/, og Spotify-appen er oprettet med klient-id'et bygget ind i `js/config.js`.
 
+**På Spotifys udviklerside:** Åbn appen **Værelset**, vælg **Settings → Edit**, og sæt også flueben ved **Web Playback SDK**. Det kræves for, at siden selv kan spille musik.
+
+**På iPad'en:**
+
 1. Åbn adressen i Safari, og vælg **Del → Føj til hjemmeskærm**.
 2. Åbn **Værelset** fra hjemmeskærmen.
 3. Tryk på tandhjulet, skriv din by, tryk **Søg**, og vælg den rigtige.
 4. Tryk **Log ind**, og godkend hos Spotify.
 5. Sæt **Indstillinger → Skærm og lysstyrke → Autolås** til **Aldrig**, og lad opladeren sidde i.
-6. Sæt jackkablet direkte i iPad'en, og start Spotify-appen.
+6. Tilslut højttaleren. Opladeren går i stikket ved hjemknappen, og jackkablet går direkte i det runde hul i modsatte ende, uden omformer. Bluetooth virker også, hvis højttaleren har det: Par den under **Indstillinger → Bluetooth**. Siden skal ikke ændres.
+7. Tryk på **Find musik** på skærmen, og vælg noget at høre. Under afspilleren står der, hvor musikken spiller.
+
+Spiller musikken ikke på **Værelset**, understøtter iPad'en ikke Spotifys webafspiller. Så skal Spotify-appen være åben i baggrunden, og skærmen viser en knap til at åbne den.
 
 **Hvis login ikke kommer tilbage til appen:** Log ind i Safari i stedet. Åbn indstillingerne der, tryk **Vis loginkode**, kopiér koden, indsæt den i hjemmeskærms-appen, og tryk **Brug loginkode**. Hold koden for dig selv, for den giver adgang til din Spotify.
 
@@ -30,9 +37,11 @@ Siden ligger på https://luierring2-dev.github.io/vaerelset/, og Spotify-appen e
 Følgende kan ikke testes uden iPad'en og din Spotify-konto:
 
 - [ ] Login virker fra hjemmeskærms-appen, eller med loginkoden
-- [ ] Musik starter og kommer ud af højttaleren gennem kablet
-- [ ] Knapperne virker, mens Spotify-appen ligger i baggrunden
-- [ ] Knappen **Åbn Spotify** åbner appen
+- [ ] **Find musik** viser dine playlister, gemte numre og søgeresultater
+- [ ] Musik starter uden Spotify-appen, og der står **Spiller på Værelset**
+- [ ] Musikken kommer ud af højttaleren, mens opladeren sidder i
+- [ ] Knapperne virker
+- [ ] Knappen **Åbn Spotify** åbner appen, hvis webafspilleren ikke virker
 - [ ] Et eget baggrundsbillede kan vælges fra Billeder
 - [ ] Vækkeuret starter musikken med tændt skærm
 - [ ] Alarmlyden virker, når Spotify er lukket
@@ -43,7 +52,8 @@ Vækkeuret må ikke være din eneste vækning, før det har virket nogle morgene
 ## Kendte begrænsninger
 
 - Lydstyrken styres med knapperne på iPad'en eller højttaleren.
-- iOS kan lukke Spotify-appen, når musikken har været sat på pause længe. Så skal den åbnes igen.
+- Spotify giver ikke adgang til sin forside, anbefalinger, nye udgivelser eller en kunstners mest populære numre. Andres playlister kan startes, men ikke åbnes.
+- Bruger siden Spotify-appen i stedet for webafspilleren, kan iOS lukke appen, når musikken har været sat på pause længe. Så skal den åbnes igen.
 - Natfunktionen gør kun indholdet mørkt. iPad'ens rigtige lysstyrke kan en webside ikke ændre.
 - Musikdelen kræver, at dit Premium-abonnement er aktivt. Resten virker uden.
 

@@ -11,8 +11,8 @@ Det er færdigt, når ejeren kan se tid og vejr på afstand, starte en af sine S
 ## Forudsætninger
 
 - Lyden går fra iPad'en til Libratone-højttaleren gennem et jackkabel. iPad 6 har selv et jackstik, så omformeren er sandsynligvis overflødig.
-- Spotify-appen på iPad'en afspiller musikken. Ejeren har Spotify Premium.
-- Hjemmeskærmen taler kun med Spotify og aldrig direkte med højttaleren.
+- Ejeren har Spotify Premium. Musikken spilles af siden selv eller af Spotify-appen på iPad'en.
+- Hjemmeskærmen taler kun med Spotify og aldrig direkte med højttaleren. Højttaleren kan også være forbundet med Bluetooth uden ændringer på siden.
 - Der udvikles på Windows, og der er ingen Mac. Derfor bliver det en webside, der lægges på iPad'ens hjemmeskærm, og ikke en app fra App Store.
 
 ## Opbygning
@@ -25,7 +25,9 @@ En statisk webside med almindelig HTML, CSS og JavaScript, uden byggetrin og ude
 | Opstart | `js/app.js` | Starter delene og binder dem til siden |
 | Ur | `js/clock.js` | Tid og dato på dansk |
 | Vejr | `js/weather.js` | Henter og viser vejr fra Open-Meteo |
-| Spotify | `js/spotify.js` | Login, afspilning og playlister |
+| Spotify | `js/spotify.js` | Login, afspilning, playlister, søgning og bibliotek |
+| Musikskærm | `js/music.js` | Søgning og browsing af musik |
+| Webafspiller | `js/web-player.js` | Lader siden selv spille musik |
 | Vækkeur | `js/alarm.js` | Finder tidspunktet og starter musikken |
 | Huskeliste | `js/todo.js` | Tilføj, afkryds og slet |
 | Temaer | `js/theme.js` | Valg af tema, eget billede og natfunktion |
@@ -56,6 +58,18 @@ Siden skal kunne bruges på langs. Teksten skal være stor nok til at læse på 
 - Playlister startes ved at sende playlistens adresse som `context_uri`. Kun listen over playlister og deres navne bruges, så det er ikke et problem, at Spotify ikke længere udleverer indholdet af andres playlister.
 - Afspilningsstatus hentes hvert 5. sekund, mens siden er åben.
 - **Lydstyrke:** Der er ingen lydstyrkeknap. Den styres med knapperne på iPad'en eller højttaleren.
+
+### Musikskærm
+
+Et tryk på **Find musik** eller coveret åbner en musikskærm i fuld størrelse (`js/music.js`) med søgning, playlister, gemte numre, gemte album og det, der er hørt for nylig. Album, kunstnere og egne playlister kan åbnes. Et tryk på et nummer starter det, og albummet eller playlisten spiller videre derfra.
+
+Spotify tillader ikke forside, kategorier, nye udgivelser eller en kunstners mest populære numre. Søgning giver højst 10 resultater pr. type ad gangen, og andres playlister kan startes, men ikke åbnes.
+
+### Afspilning
+
+Siden prøver selv at spille musikken med Spotifys webafspiller (`js/web-player.js`). Det kræver, at **Web Playback SDK** er slået til på udviklersiden. Virker den ikke på enheden, bruges Spotify-appen i baggrunden i stedet, og skærmen viser **Åbn Spotify**.
+
+iOS blokerer lyd, der ikke er startet af et tryk. Derfor låses lyden op ved første tryk på skærmen, og vækkeuret tjekker kort efter start, om musikken faktisk spiller. Ellers ringer alarmen.
 
 ### Vejr
 

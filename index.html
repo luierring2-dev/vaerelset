@@ -53,7 +53,7 @@
     </section>
 
     <section class="card player-card">
-      <div class="cover-frame">
+      <div id="cover-frame" class="cover-frame">
         <img id="cover" alt="" hidden>
       </div>
       <div id="track-title">Intet spiller</div>
@@ -73,12 +73,59 @@
       <div id="player-note"></div>
       <div class="player-actions">
         <button id="login" type="button" hidden>Log ind på Spotify</button>
+        <button id="music-open" type="button" hidden>Find musik</button>
         <a id="open-spotify" class="button" href="spotify:" hidden>Åbn Spotify</a>
       </div>
       <h2>Dine playlister</h2>
       <ul id="playlists"></ul>
     </section>
   </main>
+
+  <section id="music" aria-label="Find musik" hidden>
+    <div class="music-header">
+      <button id="music-back" class="icon-button" type="button" aria-label="Tilbage" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <form id="music-search-form" class="music-search">
+        <input id="music-search" type="search" placeholder="Søg efter numre, kunstnere og album" aria-label="Søg efter musik" autocomplete="off" enterkeyhint="search">
+        <button type="submit">Søg</button>
+      </form>
+      <button id="music-close" type="button">Luk</button>
+    </div>
+
+    <div class="music-tabs">
+      <button id="music-tab-playlists" type="button">Playlister</button>
+      <button id="music-tab-saved" type="button">Gemte numre</button>
+      <button id="music-tab-albums" type="button">Gemte album</button>
+      <button id="music-tab-recent" type="button">Hørt for nylig</button>
+    </div>
+
+    <div class="music-heading">
+      <h2 id="music-title"></h2>
+      <button id="music-play-all" type="button" hidden>Afspil</button>
+    </div>
+    <div id="music-note" role="status"></div>
+    <div id="music-scroll">
+      <div id="music-list"></div>
+      <button id="music-more" type="button" hidden>Vis flere</button>
+      <button id="music-retry" type="button" hidden>Prøv igen</button>
+    </div>
+
+    <div class="music-now">
+      <div class="music-now-text">
+        <div id="music-now-title">Intet spiller</div>
+        <div id="music-now-artist"></div>
+      </div>
+      <a id="music-open-spotify" class="button" href="spotify:" hidden>Åbn Spotify</a>
+      <button id="music-play-pause" class="icon-button" type="button" aria-label="Afspil">
+        <svg id="music-icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l13-8Z"/></svg>
+        <svg id="music-icon-pause" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M8 5v14M16 5v14"/></svg>
+      </button>
+      <button id="music-next" class="icon-button" type="button" aria-label="Næste sang">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 5v14M5 5l10 7-10 7Z"/></svg>
+      </button>
+    </div>
+  </section>
 
   <div id="message" role="status" hidden></div>
 

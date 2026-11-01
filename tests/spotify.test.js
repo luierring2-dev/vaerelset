@@ -2,15 +2,16 @@ import { test, assert, fakeFetch, json, empty } from './harness.js';
 import { createMemoryBackend, createStorage } from '../js/storage.js';
 import {
   AuthRequiredError, codeChallenge, createSpotify, NetworkError, NoDeviceError,
-  parsePlayback, pickDevice, randomString, RateLimitError, redirectUriFrom, SpotifyError,
+  normalizeAlbum, normalizeArtist, normalizePlaylist, normalizeTrack,
+  parsePlayback, pickDevice, randomString, RateLimitError, redirectUriFrom, SCOPES, SpotifyError,
 } from '../js/spotify.js';
 
 const START = new Date(2026, 10, 1, 12, 0).getTime();
 
-function setup(handler, { loggedIn = true, expiresIn = 3600000 } = {}) {
+function setup(handler, { loggedIn = true, expiresIn = 3600000, scope = '', preferred = null } = {}) {
   const storage = createStorage(createMemoryBackend());
   let time = START;
-  if (loggedIn) storage.set('spotify.tokens', { access: 'A1', refresh: 'R1', expiresAt: START + expiresIn });
+  if (loggedIn) storage.set('spotify.tokens', { access: 'A1', refresh: 'R1', scope, expiresAt: START + expiresIn });
   const fetchFn = fakeFetch(handler);
   const spotify = createSpotify({
     getClientId: () => 'client123',
@@ -18,6 +19,7 @@ function setup(handler, { loggedIn = true, expiresIn = 3600000 } = {}) {
     storage,
     now: () => new Date(time),
     redirectUri: 'https://example.test/hjem/',
+    getPreferredDeviceId: () => preferred,
   });
   return { spotify, storage, fetchFn, advance: (ms) => { time += ms; } };
 }
@@ -272,6 +274,173 @@ test('playlister: stopper ved loft, hvis Spotify bliver ved', async () => {
   const { spotify, fetchFn } = setup(() => json({ items: [], next: 'altid' }));
   await spotify.getPlaylists();
   assert.equal(fetchFn.calls.length, 4);
+});
+
+const track = (id) => ({
+  id, uri: `spotify:track:${id}`, name: `Nummer ${id}`, artists: [{ name: 'A' }, { name: 'B' }], album: { images: [{ url: 'stor' }, { url: 'mellem' }, { url: 'lille' }] },
+});
+
+test('rettigheder: login beder om alt, musikskærmen og webafspilleren kræver', async () => {
+  const { spotify } = setup(() => empty(), { loggedIn: false });
+  const scope = new URL(await spotify.beginLogin()).searchParams.get('scope').split(' ');
+  for (const needed of ['streaming', 'user-read-email', 'user-read-private', 'user-library-read', 'user-read-recently-played', 'playlist-read-private']) {
+    assert.ok(scope.includes(needed), needed);
+  }
+});
+
+test('rettigheder: gammelt login med færre rettigheder kræver nyt login', () => {
+  assert.equal(setup(() => empty(), { scope: 'playlist-read-private' }).spotify.needsNewLogin(), true);
+  assert.equal(setup(() => empty(), { scope: SCOPES.join(' ') }).spotify.needsNewLogin(), false);
+  assert.equal(setup(() => empty(), { scope: '' }).spotify.needsNewLogin(), false, 'ukendt');
+  assert.equal(setup(() => empty(), { loggedIn: false }).spotify.needsNewLogin(), false, 'ikke logget ind');
+});
+
+test('rettigheder: gemmes ved login og bevares, når Spotify ikke sender dem igen', async () => {
+  const responses = [json({ access_token: 'A', refresh_token: 'R', expires_in: 0, scope: 'a b' }), json({ access_token: 'B', expires_in: 3600 }), empty()];
+  const { spotify, storage } = setup(() => responses.shift(), { loggedIn: false });
+  const state = new URL(await spotify.beginLogin()).searchParams.get('state');
+  await spotify.completeLogin(`?code=x&state=${state}`);
+  assert.equal(storage.get('spotify.tokens').scope, 'a b');
+  await spotify.pause();
+  assert.equal(storage.get('spotify.tokens').scope, 'a b');
+});
+
+test('rettigheder: login uden kendte rettigheder fornyes med det samme', async () => {
+  const { spotify, storage, fetchFn } = setup((call) => (isToken(call) ? json({ access_token: 'A2', expires_in: 3600, scope: 'x' }) : empty()));
+  const tokens = storage.get('spotify.tokens');
+  delete tokens.scope;
+  storage.set('spotify.tokens', tokens);
+  await spotify.pause();
+  assert.ok(isToken(fetchFn.calls[0]), 'fornyet');
+  assert.equal(spotify.needsNewLogin(), true);
+});
+
+test('afspilning: sidens egen afspiller bruges først', async () => {
+  const { spotify, fetchFn } = setup(() => empty(), { preferred: 'side' });
+  await spotify.playPlaylist('spotify:playlist:x');
+  assert.equal(fetchFn.calls.length, 1, 'enhedslisten behøves ikke');
+  assert.ok(fetchFn.calls[0].url.endsWith('/me/player/play?device_id=side'));
+});
+
+test('afspilning: falder tilbage på Spotify-appen, hvis siden ikke kendes', async () => {
+  const { spotify, fetchFn } = setup((call) => {
+    if (call.url.includes('device_id=side')) return json({}, 404);
+    if (call.url.endsWith('/devices')) return devices([ipad]);
+    return empty();
+  }, { preferred: 'side' });
+  await spotify.playPlaylist('spotify:playlist:x');
+  assert.ok(fetchFn.calls.at(-1).url.endsWith('device_id=ipad'));
+  assert.deepEqual(JSON.parse(fetchFn.calls.at(-1).body), { context_uri: 'spotify:playlist:x' });
+});
+
+test('afspilning: andre fejl fra sidens afspiller vises og skjules ikke', async () => {
+  const { spotify } = setup(() => json({}, 403), { preferred: 'side' });
+  const error = await assert.rejects(() => spotify.play(), SpotifyError);
+  assert.equal(error.status, 403);
+});
+
+test('afspilning: album eller playliste kan startes fra et bestemt nummer', async () => {
+  const { spotify, fetchFn } = setup((call) => (call.url.endsWith('/devices') ? devices([ipad]) : empty()));
+  await spotify.playContext('spotify:album:a', 'spotify:track:t');
+  assert.deepEqual(JSON.parse(fetchFn.calls.at(-1).body), { context_uri: 'spotify:album:a', offset: { uri: 'spotify:track:t' } });
+  await spotify.playContext('spotify:album:a');
+  assert.deepEqual(JSON.parse(fetchFn.calls.at(-1).body), { context_uri: 'spotify:album:a' });
+});
+
+test('afspilning: en liste numre kan startes', async () => {
+  const { spotify, fetchFn } = setup(() => empty(), { preferred: 'side' });
+  await spotify.playTracks(['a', 'b']);
+  assert.deepEqual(JSON.parse(fetchFn.calls[0].body), { uris: ['a', 'b'] });
+});
+
+test('browsing: numre, album, kunstnere og playlister læses rigtigt', () => {
+  assert.deepEqual(normalizeTrack(track('t')), { kind: 'track', id: 't', uri: 'spotify:track:t', name: 'Nummer t', subtitle: 'A, B', imageUrl: 'mellem' });
+  assert.equal(normalizeTrack({ uri: 'u', name: 'Afsnit', show: { name: 'Podcast' }, images: [{ url: 'e' }] }).subtitle, 'Podcast');
+  assert.equal(normalizeTrack({ uri: 'u', name: 'x' }, 'album').imageUrl, 'album');
+  assert.equal(normalizeAlbum({ uri: 'u', name: 'x', artists: [{ name: 'A' }], images: [] }).subtitle, 'A');
+  assert.equal(normalizeArtist({ uri: 'u', name: 'x', images: null }).imageUrl, null);
+  assert.equal(normalizePlaylist({ uri: 'u', name: 'x', owner: { display_name: 'Lui' } }).subtitle, 'Lui');
+  for (const normalize of [normalizeTrack, normalizeAlbum, normalizeArtist, normalizePlaylist]) assert.equal(normalize(null), null);
+});
+
+test('søgning: sender rigtige parametre under Spotifys grænse på 10', async () => {
+  const { spotify, fetchFn } = setup(() => json({}));
+  await spotify.search('æ&ø = musik', 20);
+  const params = new URL(fetchFn.calls[0].url).searchParams;
+  assert.equal(params.get('q'), 'æ&ø = musik');
+  assert.equal(params.get('type'), 'track,artist,album,playlist');
+  assert.equal(params.get('limit'), '10');
+  assert.equal(params.get('offset'), '20');
+});
+
+test('søgning: læser grupper, fjerner tomme og finder flere', async () => {
+  const { spotify } = setup(() => json({
+    tracks: { items: [track('t'), null], next: null },
+    artists: { items: [{ id: 'k', uri: 'u', name: 'K' }], next: 'mere' },
+    albums: { items: [] },
+    playlists: { items: [null, { id: 'p', name: 'uden adresse' }] },
+  }));
+  const result = await spotify.search('x', 10);
+  assert.equal(result.tracks.length, 1);
+  assert.equal(result.artists[0].subtitle, 'Kunstner');
+  assert.equal(result.albums.length, 0);
+  assert.equal(result.playlists.length, 0, 'uden adresse kan ikke bruges');
+  assert.equal(result.nextOffset, 20);
+});
+
+test('søgning: tomt svar og ingen flere', async () => {
+  const result = await setup(() => json({})).spotify.search('x');
+  assert.deepEqual([result.tracks, result.nextOffset], [[], null]);
+});
+
+test('bibliotek: gemte numre og album læser track og album og finder næste side', async () => {
+  const { spotify, fetchFn } = setup((call) => (call.url.includes('/me/tracks')
+    ? json({ items: [{ track: track('t') }, null, { track: null }], next: 'mere' })
+    : json({ items: [{ album: { id: 'a', uri: 'ua', name: 'A' } }], next: null })));
+  const tracks = await spotify.getSavedTracks(50);
+  assert.deepEqual([tracks.rows.length, tracks.nextOffset], [1, 100]);
+  assert.ok(fetchFn.calls[0].url.endsWith('/me/tracks?limit=50&offset=50'));
+  const albums = await spotify.getSavedAlbums();
+  assert.deepEqual([albums.rows[0].kind, albums.nextOffset], ['album', null]);
+});
+
+test('bibliotek: hørt for nylig viser hvert nummer én gang', async () => {
+  const { spotify, fetchFn } = setup(() => json({ items: [{ track: track('a') }, { track: track('a') }, { track: track('b') }] }));
+  const { rows, nextOffset } = await spotify.getRecentTracks();
+  assert.deepEqual(rows.map((row) => row.id), ['a', 'b']);
+  assert.equal(nextOffset, null);
+  assert.ok(fetchFn.calls[0].url.endsWith('/me/player/recently-played?limit=50'));
+});
+
+test('playlist: læser det nye item-felt, tåler det gamle og fjerner lokale numre', async () => {
+  const { spotify, fetchFn } = setup(() => json({
+    items: [{ item: track('ny') }, { track: track('gl') }, { is_local: true, item: track('lokal') }, null],
+    next: 'mere',
+  }));
+  const { rows, nextOffset } = await spotify.getPlaylistTracks('a/b', 50);
+  assert.deepEqual(rows.map((row) => row.id), ['ny', 'gl']);
+  assert.equal(nextOffset, 100);
+  assert.ok(fetchFn.calls[0].url.includes('/playlists/a%2Fb/items?limit=50&offset=50'));
+});
+
+test('playlist: andres playlister giver en fejl med status 403', async () => {
+  const error = await assert.rejects(() => setup(() => json({}, 403)).spotify.getPlaylistTracks('x'), SpotifyError);
+  assert.equal(error.status, 403);
+});
+
+test('album: numre får albummets billede, fordi Spotify ikke sender det', async () => {
+  const { spotify, fetchFn } = setup(() => json({ items: [{ id: 't', uri: 'ut', name: 'x', artists: [] }], next: null }));
+  const { rows } = await spotify.getAlbumTracks('a1', 0, 'cover');
+  assert.equal(rows[0].imageUrl, 'cover');
+  assert.ok(fetchFn.calls[0].url.endsWith('/albums/a1/tracks?limit=50&offset=0'));
+});
+
+test('kunstner: album hentes under Spotifys grænse på 10', async () => {
+  const { spotify, fetchFn } = setup(() => json({ items: [{ id: 'a', uri: 'ua', name: 'x' }], next: 'mere' }));
+  const { rows, nextOffset } = await spotify.getArtistAlbums('k1', 10);
+  assert.equal(rows.length, 1);
+  assert.equal(nextOffset, 20);
+  assert.ok(fetchFn.calls[0].url.endsWith('/artists/k1/albums?limit=10&offset=10'));
 });
 
 test('grænser: 429 holder pause og følger Retry-After', async () => {
