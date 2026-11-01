@@ -10,7 +10,6 @@ export function createWebPlayer({
   let player = null;
   let deviceId = null;
   let started = false;
-  let unsupported = false;
   let activated = false;
   let timer = null;
 
@@ -18,11 +17,6 @@ export function createWebPlayer({
     clearTimeout(timer);
     deviceId = null;
     onUnavailable?.(reason);
-  }
-
-  function failForGood(reason) {
-    unsupported = true;
-    fail(reason);
   }
 
   function create() {
@@ -43,9 +37,9 @@ export function createWebPlayer({
       activated = false;
       onUnavailable?.('not_ready');
     });
-    player.addListener('initialization_error', () => failForGood('initialization_error'));
-    player.addListener('account_error', () => failForGood('account_error'));
-    player.addListener('authentication_error', () => fail('authentication_error'));
+    for (const error of ['initialization_error', 'account_error', 'authentication_error']) {
+      player.addListener(error, () => fail(error));
+    }
     player.addListener('playback_error', () => onPlaybackError?.());
     player.addListener('autoplay_failed', () => onAutoplayFailed?.());
     player.connect()
@@ -57,7 +51,7 @@ export function createWebPlayer({
 
   return {
     start() {
-      if (started || unsupported) return;
+      if (started) return;
       started = true;
       timer = setTimeout(() => fail('timeout'), timeoutMs);
       if (win.Spotify?.Player) {

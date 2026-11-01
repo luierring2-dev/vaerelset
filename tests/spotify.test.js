@@ -334,9 +334,10 @@ test('afspilning: falder tilbage på Spotify-appen, hvis siden ikke kendes', asy
 });
 
 test('afspilning: andre fejl fra sidens afspiller vises og skjules ikke', async () => {
-  const { spotify } = setup(() => json({}, 403), { preferred: 'side' });
+  const { spotify, fetchFn } = setup((call) => (call.url.endsWith('/devices') ? devices([ipad]) : json({}, 403)), { preferred: 'side' });
   const error = await assert.rejects(() => spotify.play(), SpotifyError);
   assert.equal(error.status, 403);
+  assert.equal(fetchFn.calls.length, 1, 'skifter ikke stille over til appen');
 });
 
 test('afspilning: album eller playliste kan startes fra et bestemt nummer', async () => {

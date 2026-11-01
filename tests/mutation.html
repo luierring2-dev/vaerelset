@@ -49,9 +49,10 @@
       ['js/spotify.js', 'rows.filter((row, index) => rows.findIndex((other) => other.uri === row.uri) === index)', 'rows'],
       ['js/spotify.js', '.some((group) => group?.next)', '.every((group) => group?.next)'],
       ['js/spotify.js', '.filter((row) => row?.uri)', ''],
-      ['js/web-player.js', "player.addListener('initialization_error', () => failForGood('initialization_error'));", "player.addListener('initialization_error', () => fail('initialization_error'));"],
-      ['js/web-player.js', "player.addListener('account_error', () => failForGood('account_error'));", ''],
-      ['js/web-player.js', 'if (started || unsupported) return;', 'if (unsupported) return;'],
+      ['js/web-player.js', "for (const error of ['initialization_error', 'account_error', 'authentication_error']) {", "for (const error of ['account_error', 'authentication_error']) {"],
+      ['js/web-player.js', "for (const error of ['initialization_error', 'account_error', 'authentication_error']) {", "for (const error of ['initialization_error', 'authentication_error']) {"],
+      ['js/web-player.js', "for (const error of ['initialization_error', 'account_error', 'authentication_error']) {", "for (const error of ['initialization_error', 'account_error']) {"],
+      ['js/web-player.js', 'if (started) return;', ''],
       ['js/web-player.js', 'if (!player || activated) return;', 'if (!player) return;'],
       ['js/web-player.js', 'if (!connected) fail(\'connect\');', ''],
       ['js/web-player.js', ".catch(() => fail('connect'));", '.catch(() => {});'],
@@ -151,7 +152,14 @@
         : { hang: true };
     }
 
-    const report = { done: 0, total: MUTATIONS.length, results: [], baseline: null, finished: false };
+    // ?only=kode&only=andenkode kører kun de fejl, hvis kode indeholder en af teksterne.
+    const only = new URLSearchParams(location.search).getAll('only');
+    const selected = only.length
+      ? MUTATIONS.filter(([, from]) => only.some((text) => from.includes(text)))
+      : MUTATIONS;
+    const PAGE_LIMIT_MS = 180000;
+
+    const report = { done: 0, total: selected.length, results: [], baseline: null, finished: false };
     window.mutationReport = report;
     const status = document.getElementById('status');
 
@@ -161,17 +169,19 @@
       e2e: await runPage('/tests/e2e.html', 120000),
     };
 
-    for (const [file, from, to] of MUTATIONS) {
+    for (const [file, from, to] of selected) {
       const response = await fetch('/__mutate', { method: 'POST', body: JSON.stringify({ file, from, to }) });
       const { found } = await response.json();
-      const result = { file, from, to, found, caughtBy: [] };
+      const result = { file, from, to, found, caughtBy: [], timedOut: false };
       if (found) {
-        const pageOnly = file === 'js/app.js' || file === 'style.css';
+        const pageOnly = ['js/app.js', 'js/music.js', 'style.css'].includes(file);
         const pages = pageOnly ? ['/tests/e2e.html'] : ['/tests/index.html', '/tests/e2e.html'];
         for (const page of pages) {
-          const outcome = await runPage(page, 40000);
-          result.caughtBy = outcome.hang ? [`${page}: hænger`] : outcome.failed.slice(0, 2);
-          if (result.caughtBy.length) break;
+          const outcome = await runPage(page, PAGE_LIMIT_MS);
+          // En tidsgrænse siger ikke, at testene fangede fejlen, så den tælles for sig.
+          result.timedOut = Boolean(outcome.hang);
+          if (!outcome.hang) result.caughtBy = outcome.failed.slice(0, 2);
+          if (result.caughtBy.length || result.timedOut) break;
         }
       }
       report.results.push(result);
@@ -180,10 +190,12 @@
     }
     await fetch('/__reset');
 
-    report.survivors = report.results.filter((result) => result.found && !result.caughtBy.length);
+    report.timedOut = report.results.filter((result) => result.timedOut);
+    report.survivors = report.results.filter((result) => result.found && !result.caughtBy.length && !result.timedOut);
     report.notFound = report.results.filter((result) => !result.found);
     report.finished = true;
-    status.textContent = `${report.total - report.survivors.length - report.notFound.length} af ${report.total} fejl fanget`;
+    const caught = report.total - report.survivors.length - report.notFound.length - report.timedOut.length;
+    status.textContent = `${caught} af ${report.total} fejl fanget`;
     document.getElementById('survivors').textContent = JSON.stringify(report.survivors, null, 2);
   </script>
 </body>

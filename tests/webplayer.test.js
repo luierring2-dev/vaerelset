@@ -97,11 +97,19 @@ test('webafspiller: hedder Værelset og henter login ved behov', async () => {
 
 test('webafspiller: mislykket login giver ingen uhåndteret fejl', async () => {
   const { player, log } = setup({ getToken: async () => { throw new Error('ude'); } });
+  const unhandled = [];
+  const listener = (event) => {
+    event.preventDefault();
+    unhandled.push(String(event.reason));
+  };
+  window.addEventListener('unhandledrejection', listener);
   player.start();
   let called = false;
   log.players[0].options.getOAuthToken(() => { called = true; });
-  await tick();
+  await new Promise((resolve) => { setTimeout(resolve, 30); });
+  window.removeEventListener('unhandledrejection', listener);
   assert.equal(called, false);
+  assert.deepEqual(unhandled, []);
   player.stop();
 });
 
@@ -128,24 +136,18 @@ test('webafspiller: mister enheden ved not_ready og kan komme tilbage', () => {
   player.stop();
 });
 
-test('webafspiller: enhed uden understøttelse prøves ikke igen', () => {
-  for (const event of ['initialization_error', 'account_error']) {
+test('webafspiller: fejl melder, at den ikke er til rådighed, og den prøves ikke igen', () => {
+  for (const event of ['initialization_error', 'account_error', 'authentication_error']) {
     const { player, log } = setup();
     player.start();
+    log.players[0].emit('ready', { device_id: 'side' });
     log.players[0].emit(event, { message: 'nej' });
     assert.deepEqual(log.unavailable, [event]);
+    assert.equal(player.getDeviceId(), null, event);
     player.start();
     assert.equal(log.players.length, 1, event);
     player.stop();
   }
-});
-
-test('webafspiller: login-fejl melder, at den ikke er til rådighed', () => {
-  const { player, log } = setup();
-  player.start();
-  log.players[0].emit('authentication_error', { message: 'nej' });
-  assert.deepEqual(log.unavailable, ['authentication_error']);
-  player.stop();
 });
 
 test('webafspiller: script der ikke kan hentes, kan prøves igen', () => {
