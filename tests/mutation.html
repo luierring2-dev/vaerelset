@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <title>Fejltest</title>
+  <style>
+    body { font: 14px/1.5 monospace; margin: 16px; }
+    iframe { position: absolute; left: -3000px; top: 0; }
+  </style>
+</head>
+<body>
+  <div id="status">Kører…</div>
+  <pre id="survivors"></pre>
+  <script type="module">
+    // Hver linje er en fejl, testene skal opdage: fil, kode der ændres, og hvad den ændres til.
+    const MUTATIONS = [
+      ['js/alarm.js', 'age >= 0 && age <= DUE_WINDOW_MS', 'age >= 0'],
+      ['js/alarm.js', 'storage.set(LAST_FIRED_KEY, id);', ''],
+      ['js/alarm.js', 'for (const offset of [0, -1])', 'for (const offset of [0])'],
+      ['js/alarm.js', 'alarm.days.includes(day.getDay()) && occurrence > now', 'occurrence > now'],
+      ['js/alarm.js', 'onRing(error);', ''],
+      ['js/alarm.js', "if (!alarm.playlistUri) throw new Error('Ingen playliste valgt');", ''],
+      ['js/theme.js', 'current >= from || current < to', 'current >= from && current < to'],
+      ['js/theme.js', 'if (override && now.getTime() < override.until) return override.value;', 'if (override) return override.value;'],
+      ['js/theme.js', "usable = typeof image === 'string' && image.startsWith('data:image/')", "usable = typeof image === 'string'"],
+      ['js/theme.js', 'Math.min(1, maxSide / Math.max(width, height))', 'maxSide / Math.max(width, height)'],
+      ['js/theme.js', "if (root.style.getPropertyValue('--background-image') === value) return;", ''],
+      ['js/spotify.js', "if (!pending || pending.state !== params.get('state')) {", 'if (!pending) {'],
+      ['js/spotify.js', 'if (error instanceof AuthRequiredError) storage.remove(TOKENS_KEY);', 'storage.remove(TOKENS_KEY);'],
+      ['js/spotify.js', 'if (error instanceof AuthRequiredError) storage.remove(TOKENS_KEY);', ''],
+      ['js/spotify.js', 'if (pausedUntil > time()) throw new RateLimitError(pausedUntil - time());', ''],
+      ['js/spotify.js', 'usable.find((device) => device.is_active) ??', ''],
+      ['js/spotify.js', 'if (!refreshing) {', 'if (true) {'],
+      ['js/spotify.js', 'refresh: json.refresh_token ?? previousRefresh,', 'refresh: json.refresh_token,'],
+      ['js/spotify.js', 'current.expiresAt - EXPIRY_MARGIN_MS <= time()', 'false'],
+      ['js/spotify.js', "code_challenge_method: 'S256',", ''],
+      ['js/spotify.js', '{ context_uri: uri }', '{ uris: [uri] }'],
+      ['js/spotify.js', "if (response.status === 404 && path.startsWith('/me/player')) throw new NoDeviceError();", 'if (response.status === 404) throw new NoDeviceError();'],
+      ['js/spotify.js', 'if (!json?.next) break;', ''],
+      ['js/spotify.js', '(json?.items ?? []).filter(Boolean)', '(json?.items ?? [])'],
+      ['js/spotify.js', "url.pathname.replace(/index\\.html$/, '')", 'url.pathname'],
+      ['js/weather.js', 'time.getHours() % 3 === 0', 'true'],
+      ['js/weather.js', 'cached?.place === place.name', 'cached'],
+      ['js/weather.js', 'date.toDateString() !== now.toDateString() && date > now', 'true'],
+      ['js/weather.js', 'Math.round(json.current.temperature_2m)', 'json.current.temperature_2m'],
+      ['js/todo.js', '.slice(0, MAX_LENGTH)', ''],
+      ['js/todo.js', "typeof item?.id === 'string' && typeof item?.text === 'string'", 'true'],
+      ['js/settings.js', 'Number.isInteger(day) && day >= 0 && day <= 6', 'true'],
+      ['js/settings.js', 'TIME_PATTERN.test(alarm.time) ? alarm.time : defaults.alarm.time', 'alarm.time'],
+      ['js/clock.js', "padStart(2, '0')", "padStart(1, '0')"],
+      ['js/storage.js', 'return raw === null || raw === undefined ? fallback : JSON.parse(raw);', 'return JSON.parse(raw);'],
+      ['js/app.js', "playback?.coverUrl?.startsWith('https://') ? playback.coverUrl : null", 'playback?.coverUrl ?? null'],
+      ['js/app.js', "storage.remove('night.override');", ''],
+      ['js/app.js', 'if (state.polling || doc.hidden) return;', 'if (doc.hidden) return;'],
+      ['js/app.js', 'if (state.polling || doc.hidden) return;', 'if (state.polling) return;'],
+      ['js/app.js', 'if (!quiet) showMessage(errorText(error));', 'showMessage(errorText(error));'],
+      ['js/app.js', 'alarmSound.start();', ''],
+      ['js/app.js', 'if (!state.playlistsLoaded) await loadPlaylists();', ''],
+      ['js/app.js', 'if (JSON.stringify(playlists) === JSON.stringify(state.playlists)) return;', ''],
+      ['js/app.js', 'if (node.textContent !== text) node.textContent = text;', 'node.textContent = text;'],
+      ['js/app.js', "if (doc.activeElement === $('city-input')) runCitySearch();", ''],
+      ['js/app.js', "root.classList.remove('night-peek');", ''],
+      ['js/app.js', "$('open-spotify').hidden = !loggedIn || !(noDevice || !playback);", "$('open-spotify').hidden = true;"],
+      ['js/app.js', ".has('error')) clearUrl();", ".has('error')) {}"],
+      ['js/app.js', 'state.image = dataUrl;', ''],
+      ['js/app.js', 'state.image = null;', ''],
+      ['js/app.js', "const button = element('button', 'playlist-button', playlist.name);", "const button = element('button', 'playlist-button'); button.innerHTML = playlist.name;"],
+      ['js/app.js', "$('login').hidden = loggedIn;", "$('login').hidden = false;"],
+      ['js/app.js', 'alarmTimer = setTimeout(stopAlarm, alarmMaxMs);', ''],
+      ['js/app.js', 'setInterval(() => { if (state.weatherMissing) refreshWeather(); }, weatherRetryMs),', ''],
+      ['js/app.js', 'if (state.weatherMissing) refreshWeather();', 'refreshWeather();'],
+      ['js/app.js', 'setInterval(tickClock, SECOND),', ''],
+      ['style.css', '.night:not(.night-peek) .player-card,', ''],
+      ['style.css', 'height: 100dvh;', 'height: 150dvh;'],
+    ];
+
+    const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+    async function runPage(path, limitMs) {
+      const frame = document.createElement('iframe');
+      frame.width = 1024;
+      frame.height = 768;
+      frame.src = `${path}?t=${Math.random()}`;
+      document.body.append(frame);
+      const started = Date.now();
+      let summary = null;
+      while (Date.now() - started < limitMs) {
+        await sleep(100);
+        summary = frame.contentWindow?.testSummary;
+        if (summary) break;
+      }
+      frame.remove();
+      return summary
+        ? { passed: summary.passed, total: summary.total, failed: summary.failed.map((test) => test.name) }
+        : { hang: true };
+    }
+
+    const report = { done: 0, total: MUTATIONS.length, results: [], baseline: null, finished: false };
+    window.mutationReport = report;
+    const status = document.getElementById('status');
+
+    await fetch('/__reset');
+    report.baseline = {
+      logic: await runPage('/tests/index.html', 120000),
+      e2e: await runPage('/tests/e2e.html', 120000),
+    };
+
+    for (const [file, from, to] of MUTATIONS) {
+      const response = await fetch('/__mutate', { method: 'POST', body: JSON.stringify({ file, from, to }) });
+      const { found } = await response.json();
+      const result = { file, from, to, found, caughtBy: [] };
+      if (found) {
+        const pageOnly = file === 'js/app.js' || file === 'style.css';
+        const pages = pageOnly ? ['/tests/e2e.html'] : ['/tests/index.html', '/tests/e2e.html'];
+        for (const page of pages) {
+          const outcome = await runPage(page, 40000);
+          result.caughtBy = outcome.hang ? [`${page}: hænger`] : outcome.failed.slice(0, 2);
+          if (result.caughtBy.length) break;
+        }
+      }
+      report.results.push(result);
+      report.done++;
+      status.textContent = `${report.done} af ${report.total}`;
+    }
+    await fetch('/__reset');
+
+    report.survivors = report.results.filter((result) => result.found && !result.caughtBy.length);
+    report.notFound = report.results.filter((result) => !result.found);
+    report.finished = true;
+    status.textContent = `${report.total - report.survivors.length - report.notFound.length} af ${report.total} fejl fanget`;
+    document.getElementById('survivors').textContent = JSON.stringify(report.survivors, null, 2);
+  </script>
+</body>
+</html>

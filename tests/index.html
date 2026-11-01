@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <title>Tests</title>
+  <style>body { font: 14px/1.5 monospace; margin: 16px; }</style>
+</head>
+<body>
+  <div id="results">Kører tests…</div>
+  <script type="module">
+    import { runAll } from './harness.js';
+    import './logic.test.js';
+    import './spotify.test.js';
+    import './simulation.test.js';
+
+    const container = document.getElementById('results');
+    container.textContent = '';
+    runAll(container);
+  </script>
+</body>
+</html>

@@ -1,0 +1,387 @@
+/* Midlertidigt, neutralt udseende. Designet er ikke besluttet endnu.
+   Et nyt tema er en ny [data-theme]-blok, der sætter de samme variabler. */
+[data-theme="neutral"] {
+  --page: #1c1c1e;
+  --card: #2c2c2e;
+  --control: #3a3a3c;
+  --text: #f2f2f7;
+  --muted: #aeaeb2;
+  --line: #48484a;
+  --alarm: #8e2c2c;
+  --night-text: #7a2f2a;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--page);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 18px;
+  line-height: 1.35;
+  overflow: hidden;
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.has-image body {
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.55)),
+    var(--background-image) center / cover no-repeat var(--page);
+}
+
+.has-image .card { background: rgba(28, 28, 30, 0.72); }
+
+h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+
+ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+button, .button, input, select, textarea {
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+}
+
+button, .button {
+  align-items: center;
+  background: var(--control);
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  display: inline-flex;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 16px;
+  text-decoration: none;
+}
+
+button.primary { background: var(--text); color: var(--page); }
+
+input, select, textarea {
+  background: var(--control);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  min-height: 44px;
+  padding: 0 12px;
+  width: 100%;
+}
+
+textarea { padding: 10px 12px; resize: none; }
+
+input[type="checkbox"] { min-height: 0; height: 22px; width: 22px; }
+
+[hidden] { display: none !important; }
+
+.layout {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  height: 100vh;
+  height: 100dvh;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+}
+
+.column {
+  display: grid;
+  gap: 12px;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 0;
+  min-width: 0;
+}
+
+.card {
+  background: var(--card);
+  border-radius: 16px;
+  min-height: 0;
+  min-width: 0;
+  padding: 14px 18px;
+}
+
+.top-row {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.top-actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+#time {
+  font-size: clamp(96px, 20vh, 170px);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1.05;
+}
+
+.icon-button {
+  height: 44px;
+  padding: 0;
+  width: 44px;
+}
+
+.icon-button.large {
+  border-radius: 50%;
+  height: 64px;
+  width: 64px;
+}
+
+.icon-button svg {
+  fill: none;
+  height: 55%;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  width: 55%;
+}
+
+.weather-now {
+  align-items: baseline;
+  display: flex;
+  gap: 12px;
+}
+
+#weather-temp { font-size: 44px; font-weight: 600; }
+#weather-note { color: var(--muted); font-size: 15px; margin-left: auto; }
+
+.forecast {
+  color: var(--muted);
+  display: grid;
+  font-size: 15px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 4px;
+}
+
+#weather-days { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.todo-card {
+  display: flex;
+  flex-direction: column;
+}
+
+#todo-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.todo-item {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.todo-toggle {
+  background: none;
+  flex: 1;
+  justify-content: flex-start;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  text-align: left;
+}
+
+.todo-item.done .todo-toggle { color: var(--muted); text-decoration: line-through; }
+
+.todo-remove { background: none; color: var(--muted); padding: 0; width: 44px; }
+
+.inline-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.player-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cover-frame {
+  align-self: center;
+  aspect-ratio: 1;
+  background: var(--control);
+  border-radius: 12px;
+  height: 30vh;
+  overflow: hidden;
+}
+
+#cover {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+#track-title {
+  font-size: 22px;
+  font-weight: 600;
+  margin-top: 8px;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#track-artist, #player-note {
+  color: var(--muted);
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#track-artist { min-height: 24px; }
+#player-note { font-size: 15px; min-height: 20px; }
+
+.controls {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  margin: 8px 0 4px;
+}
+
+.player-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.player-card h2 { margin-top: 8px; }
+
+#playlists {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.playlist-button {
+  background: none;
+  justify-content: flex-start;
+  overflow: hidden;
+  padding: 0 4px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+#message {
+  background: var(--text);
+  border-radius: 12px;
+  bottom: 20px;
+  color: var(--page);
+  left: 50%;
+  max-width: 80vw;
+  padding: 10px 18px;
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: 20;
+}
+
+#alarm-overlay {
+  align-items: center;
+  animation: alarm-flash 1s steps(2) infinite;
+  background: var(--alarm);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  inset: 0;
+  justify-content: center;
+  position: fixed;
+  z-index: 30;
+}
+
+#alarm-title { font-size: 72px; font-weight: 600; }
+#alarm-stop { font-size: 28px; min-height: 80px; min-width: 240px; }
+
+@keyframes alarm-flash {
+  from { background: var(--alarm); }
+  to { background: var(--page); }
+}
+
+dialog {
+  background: var(--card);
+  border: 0;
+  border-radius: 16px;
+  color: var(--text);
+  max-height: 90vh;
+  max-width: 640px;
+  overflow-y: auto;
+  padding: 20px;
+  width: 90vw;
+}
+
+dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+
+fieldset {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+  min-width: 0;
+  padding: 10px 14px 14px;
+}
+
+fieldset p { margin: 0; }
+
+#redirect-uri { overflow-wrap: anywhere; }
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.check {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  min-height: 44px;
+}
+
+.dialog-actions { justify-content: flex-end; }
+
+/* Natfunktion: kun et svagt ur på sort. Et tryk viser kontrollerne igen. */
+.night body { background: #000; }
+.night .card { background: none; }
+.night #time, .night #date { color: var(--night-text); }
+
+.night:not(.night-peek) .weather-card,
+.night:not(.night-peek) .todo-card,
+.night:not(.night-peek) .player-card,
+.night:not(.night-peek) .top-actions {
+  visibility: hidden;
+}
+
+@media (orientation: portrait) {
+  body { overflow: auto; }
+
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+
+  #playlists, #todo-list { max-height: 40vh; }
+}
