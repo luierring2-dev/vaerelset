@@ -1,5 +1,6 @@
 import { dayName, formatDate, formatTime } from './clock.js';
 import { createAlarmRunner, nextOccurrence } from './alarm.js';
+import { DEFAULT_CLIENT_ID } from './config.js';
 import { createAlarmSound } from './sound.js';
 import { createSettings } from './settings.js';
 import {
@@ -38,7 +39,7 @@ export function start(deps = {}) {
   const timers = [];
   const { signal } = listeners;
 
-  const settings = createSettings(storage);
+  const settings = createSettings(storage, deps.defaultClientId ?? DEFAULT_CLIENT_ID);
   const todos = createTodoList(storage);
   const weather = createWeatherService({ fetch: fetchFn, storage, now });
   const redirectUri = redirectUriFrom(pageUrl);

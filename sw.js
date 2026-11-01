@@ -1,5 +1,5 @@
 // Gør at uret og siden virker, selvom nettet er væk, når iPad'en genindlæser.
-const CACHE = 'home-v1';
+const CACHE = 'home-v2';
 const APP_FILES = [
   './',
   './index.html',
@@ -9,6 +9,7 @@ const APP_FILES = [
   './js/alarm.js',
   './js/app.js',
   './js/clock.js',
+  './js/config.js',
   './js/http.js',
   './js/settings.js',
   './js/sound.js',

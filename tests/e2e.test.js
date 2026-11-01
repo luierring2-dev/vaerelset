@@ -2,6 +2,7 @@
 // Spotify og et falsk vejr-API. Intet her rammer internettet.
 import { test, assert, runAll, json, empty } from './harness.js';
 import { start } from '../js/app.js';
+import { DEFAULT_CLIENT_ID } from '../js/config.js';
 import { createMemoryBackend, createStorage } from '../js/storage.js';
 
 const markup = new DOMParser().parseFromString(await (await fetch('../index.html')).text(), 'text/html');
@@ -102,7 +103,7 @@ async function mount({
   const handle = start({
     fetch: world.fetch, storage, now: () => clock.time, pageUrl,
     navigate: (url) => navigated.push(url), clearUrl: () => { cleared++; },
-    alarmSound: sound, settleMs: 0, autoRun: false, ...options,
+    alarmSound: sound, settleMs: 0, autoRun: false, defaultClientId: '', ...options,
   });
   await handle.ready;
   current = { handle, world, storage, clock, sound, navigated, getCleared: () => cleared };
@@ -171,6 +172,24 @@ test('login: med klient-id sendes man til Spotify', async () => {
   const url = new URL(app.navigated[0]);
   assert.equal(url.host, 'accounts.spotify.com');
   assert.equal(url.searchParams.get('redirect_uri'), 'https://example.test/hjem/');
+});
+
+test('login: det indbyggede klient-id bruges, uden at noget skal tastes', async () => {
+  const app = await mount({ options: { defaultClientId: undefined } });
+  $('login').click();
+  await pause(50);
+  assert.equal(new URL(app.navigated[0]).searchParams.get('client_id'), DEFAULT_CLIENT_ID);
+  assert.equal($('settings').open, false, 'indstillinger åbnes ikke');
+  $('settings-open').click();
+  assert.equal($('client-id').value, DEFAULT_CLIENT_ID);
+  $('settings').close();
+});
+
+test('login: et selvvalgt klient-id går forud for det indbyggede', async () => {
+  const app = await mount({ settings: { clientId: 'mit-eget' }, options: { defaultClientId: undefined } });
+  $('login').click();
+  await pause(50);
+  assert.equal(new URL(app.navigated[0]).searchParams.get('client_id'), 'mit-eget');
 });
 
 test('login: retur fra Spotify gemmer login, rydder adressen og viser playlister', async () => {

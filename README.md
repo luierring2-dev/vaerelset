@@ -12,34 +12,20 @@ Funktionerne er bygget. Disse trin kræver dig:
 
 Udseendet er neutralt og midlertidigt. Når du har valgt en retning, skal der kun ændres i `style.css` og i listen `THEMES` i `js/theme.js`. Resten af siden påvirkes ikke.
 
-### 2. Læg siden på nettet
+### 2. Sæt iPad'en op
 
-Spotify kræver en HTTPS-adresse til login. GitHub Pages er gratis:
-
-1. Opret en konto på github.com, og lav et offentligt repository, for eksempel `vaerelset`.
-2. Læg indholdet af denne mappe op.
-3. Slå Pages til under **Settings → Pages**, med grenen `main` og mappen `/ (root)`.
-
-Adressen bliver `https://DITNAVN.github.io/vaerelset/`.
-
-### 3. Opret Spotify-appen
-
-1. Log ind på [Spotifys udviklerside](https://developer.spotify.com/dashboard) med din Premium-konto, og vælg **Create app**.
-2. Skriv adressen fra trin 2 under **Redirect URIs**. Den skal være helt ens, også skråstregen til sidst.
-3. Vælg **Web API**, og gem.
-4. Kopiér **Client ID**. Der er ingen hemmelig nøgle, og du skal ikke bruge **Client secret**.
-
-### 4. Sæt iPad'en op
+Siden ligger på https://luierring2-dev.github.io/vaerelset/, og Spotify-appen er oprettet med klient-id'et bygget ind i `js/config.js`.
 
 1. Åbn adressen i Safari, og vælg **Del → Føj til hjemmeskærm**.
 2. Åbn **Værelset** fra hjemmeskærmen.
-3. Tryk på tandhjulet, skriv din by og dit klient-id, og tryk **Log ind**.
-4. Sæt **Indstillinger → Skærm og lysstyrke → Autolås** til **Aldrig**, og lad opladeren sidde i.
-5. Sæt jackkablet direkte i iPad'en, og start Spotify-appen.
+3. Tryk på tandhjulet, skriv din by, tryk **Søg**, og vælg den rigtige.
+4. Tryk **Log ind**, og godkend hos Spotify.
+5. Sæt **Indstillinger → Skærm og lysstyrke → Autolås** til **Aldrig**, og lad opladeren sidde i.
+6. Sæt jackkablet direkte i iPad'en, og start Spotify-appen.
 
 **Hvis login ikke kommer tilbage til appen:** Log ind i Safari i stedet. Åbn indstillingerne der, tryk **Vis loginkode**, kopiér koden, indsæt den i hjemmeskærms-appen, og tryk **Brug loginkode**. Hold koden for dig selv, for den giver adgang til din Spotify.
 
-### 5. Test på den rigtige iPad
+### 3. Test på den rigtige iPad
 
 Følgende kan ikke testes uden iPad'en og din Spotify-konto:
 

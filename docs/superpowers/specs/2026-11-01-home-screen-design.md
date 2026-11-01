@@ -50,7 +50,7 @@ Siden skal kunne bruges på langs. Teksten skal være stor nok til at læse på 
 
 ### Musik
 
-- Login sker med Spotifys PKCE-flow, som ikke kræver en hemmelig nøgle. Ejeren opretter selv en gratis Spotify-udviklerapp og indtaster dens klient-id i indstillingerne.
+- Login sker med Spotifys PKCE-flow, som ikke kræver en hemmelig nøgle. Ejeren har oprettet en gratis Spotify-udviklerapp, og dens klient-id er bygget ind i `js/config.js`. Et andet klient-id kan skrives i indstillingerne.
 - Rettigheder: `user-read-playback-state`, `user-modify-playback-state`, `playlist-read-private`, `playlist-read-collaborative`.
 - Bruger disse kald: `GET /me/player`, `GET /me/player/devices`, `PUT /me/player`, `PUT /me/player/play`, `PUT /me/player/pause`, `POST /me/player/next`, `POST /me/player/previous`, `GET /me/playlists`.
 - Playlister startes ved at sende playlistens adresse som `context_uri`. Kun listen over playlister og deres navne bruges, så det er ikke et problem, at Spotify ikke længere udleverer indholdet af andres playlister.

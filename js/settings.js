@@ -23,13 +23,14 @@ function validPlace(place) {
     : null;
 }
 
-export function normalizeSettings(raw) {
+export function normalizeSettings(raw, defaultClientId = '') {
   const value = raw && typeof raw === 'object' ? raw : {};
   const defaults = DEFAULT_SETTINGS;
   const alarm = value.alarm ?? {};
   const night = value.night ?? {};
+  const clientId = typeof value.clientId === 'string' ? value.clientId.trim() : '';
   return {
-    clientId: typeof value.clientId === 'string' ? value.clientId.trim() : '',
+    clientId: clientId || defaultClientId,
     place: validPlace(value.place),
     themeId: typeof value.themeId === 'string' ? value.themeId : defaults.themeId,
     night: {
@@ -48,12 +49,13 @@ export function normalizeSettings(raw) {
   };
 }
 
-export function createSettings(storage) {
+export function createSettings(storage, defaultClientId = '') {
+  const load = () => normalizeSettings(storage.get(KEY), defaultClientId);
   return {
-    load: () => normalizeSettings(storage.get(KEY)),
-    save: (settings) => storage.set(KEY, normalizeSettings(settings)),
+    load,
+    save: (settings) => storage.set(KEY, normalizeSettings(settings, defaultClientId)),
     update(change) {
-      const next = normalizeSettings({ ...normalizeSettings(storage.get(KEY)), ...change });
+      const next = normalizeSettings({ ...load(), ...change }, defaultClientId);
       storage.set(KEY, next);
       return next;
     },

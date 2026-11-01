@@ -6,6 +6,7 @@ import { createAlarmRunner, dueOccurrence, nextOccurrence } from '../js/alarm.js
 import { createTodoList } from '../js/todo.js';
 import { applyAppearance, fitInside, isNightActive, isNightTime, nextNightChange, resolveThemeId, toggleNight } from '../js/theme.js';
 import { createSettings, DEFAULT_SETTINGS, normalizeSettings } from '../js/settings.js';
+import { DEFAULT_CLIENT_ID } from '../js/config.js';
 
 const newStorage = () => createStorage(createMemoryBackend());
 
@@ -318,6 +319,34 @@ test('indstillinger: standard ved tomt lager og ødelagte data', () => {
   assert.equal(bad.night.start, '22:00');
   assert.equal(bad.alarm.time, '07:00');
   assert.deepEqual(bad.alarm.days, [1, 3]);
+});
+
+test('indstillinger: klient-id falder tilbage på det indbyggede', () => {
+  assert.equal(normalizeSettings({}, 'indbygget').clientId, 'indbygget');
+  assert.equal(normalizeSettings({ clientId: '   ' }, 'indbygget').clientId, 'indbygget');
+  assert.equal(normalizeSettings({ clientId: 'eget' }, 'indbygget').clientId, 'eget');
+  const settings = createSettings(newStorage(), 'indbygget');
+  assert.equal(settings.load().clientId, 'indbygget');
+  assert.equal(settings.update({ clientId: '' }).clientId, 'indbygget');
+});
+
+test('indstillinger: det indbyggede klient-id har Spotifys format', () => {
+  assert.ok(/^[0-9a-f]{32}$/.test(DEFAULT_CLIENT_ID), 'format');
+});
+
+test('offline: alle moduler, siden bruger, er med i sw.js', async () => {
+  const sw = await (await fetch('../sw.js')).text();
+  const seen = new Set();
+  const queue = ['js/app.js'];
+  while (queue.length) {
+    const file = queue.pop();
+    if (seen.has(file)) continue;
+    seen.add(file);
+    const code = await (await fetch(`../${file}`)).text();
+    for (const [, name] of code.matchAll(/from '\.\/([\w-]+\.js)'/g)) queue.push(`js/${name}`);
+  }
+  assert.ok(seen.size > 5, 'fandt modulerne');
+  for (const file of seen) assert.ok(sw.includes(`./${file}`), file);
 });
 
 test('indstillinger: delvis opdatering bevarer resten', () => {
